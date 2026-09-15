@@ -1,0 +1,76 @@
+# CICIoT2023 → 8-class taxonomy
+# Source: manual inspection of all 34 labels in the 45M-row merged dataset
+# Rationale: groups are large enough for reliable per-class F1 on server validation set
+
+label_mapping:
+  # Normal traffic
+  BENIGN: BENIGN
+
+  # Volumetric DDoS (7 sub-types, 70% of data)
+  DDOS-ICMP_FLOOD: DDOS
+  DDOS-UDP_FLOOD: DDOS
+  DDOS-TCP_FLOOD: DDOS
+  DDOS-PSHACK_FLOOD: DDOS
+  DDOS-SYN_FLOOD: DDOS
+  DDOS-RSTFINFLOOD: DDOS
+  DDOS-SYNONYMOUSIP_FLOOD: DDOS
+  DDOS-ICMP_FRAGMENTATION: DDOS
+  DDOS-UDP_FRAGMENTATION: DDOS
+  DDOS-ACK_FRAGMENTATION: DDOS
+  DDOS-HTTP_FLOOD: DDOS
+  DDOS-SLOWLORIS: DDOS
+
+  # Denial of Service (host-level, 3 sub-types)
+  DOS-UDP_FLOOD: DOS
+  DOS-TCP_FLOOD: DOS
+  DOS-SYN_FLOOD: DOS
+  DOS-HTTP_FLOOD: DOS
+
+  # Mirai botnet traffic
+  MIRAI-GREETH_FLOOD: MIRAI
+  MIRAI-UDPPLAIN: MIRAI
+  MIRAI-GREIP_FLOOD: MIRAI
+
+  # Reconnaissance / scanning
+  RECON-HOSTDISCOVERY: RECON
+  RECON-OSSCAN: RECON
+  RECON-PORTSCAN: RECON
+  RECON-PINGSWEEP: RECON
+  VULNERABILITYSCAN: RECON
+
+  # Man-in-the-middle / spoofing
+  MITM-ARPSPOOFING: MITM
+  DNS_SPOOFING: MITM
+
+  # Web application attacks
+  XSS: WEBAPP
+  SQLINJECTION: WEBAPP
+  COMMANDINJECTION: WEBAPP
+  BROWSERHIJACKING: WEBAPP
+  UPLOADING_ATTACK: WEBAPP
+
+  # Malware / credential attacks
+  BACKDOOR_MALWARE: MALWARE
+  DICTIONARYBRUTEFORCE: MALWARE
+
+# Integer encoding (for PyTorch CrossEntropyLoss)
+class_to_idx:
+  BENIGN: 0
+  DDOS: 1
+  DOS: 2
+  MIRAI: 3
+  RECON: 4
+  MITM: 5
+  WEBAPP: 6
+  MALWARE: 7
+
+# Human-readable class names (for plots and dashboard)
+idx_to_class:
+  0: BENIGN
+  1: DDOS
+  2: DOS
+  3: MIRAI
+  4: RECON
+  5: MITM
+  6: WEBAPP
+  7: MALWARE

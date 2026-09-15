@@ -1,0 +1,82 @@
+# ============================================================
+# Global project configuration — CICIoT2023 Federated IDS
+# ============================================================
+
+project:
+  name: federated-ids
+  random_seed: 42
+
+# ---- Paths --------------------------------------------------------
+paths:
+  raw_data_dir: data/raw/MERGED_CSV
+  processed_dir: data/processed
+  metadata_dir: data/metadata
+  label_mapping: configs/label_mapping.yaml
+
+# ---- Dataset Preparation ------------------------------------------
+preprocessing:
+  # Columns to drop (near-zero variance, confirmed in inspection)
+  drop_columns:
+    - ece_flag_number
+    - cwr_flag_number
+    - Telnet
+    - SMTP
+    - IRC
+    - IGMP
+    - DHCP
+
+  # Columns to log1p-transform before scaling (extreme skew: max/mean > 100x)
+  log_transform_columns:
+    - IAT
+    - Variance
+    - Std
+    - Rate
+    - Tot sum
+    - ack_count
+
+  # Scaler applied after log-transform
+  scaler: robust   # options: robust | standard | minmax
+
+  # Train/val/test proportions (must sum to 1.0)
+  train_ratio: 0.70
+  val_ratio:   0.15
+  test_ratio:  0.15
+
+  # Server-side validation set (disjoint from all client data)
+  server_val_per_class: 625    # 8 classes × 625 = 5000 rows
+  server_val_min_per_class: 100  # warn if any class falls below this
+
+# ---- Dev Subsample ------------------------------------------------
+dev_sample:
+  enabled: true
+  total_rows: 500_000          # stratified across 8 classes
+  output_dir: data/processed/dev
+
+# ---- Full Dataset (run later) -------------------------------------
+full_dataset:
+  enabled: false               # flip to true when FL pipeline is ready
+  output_dir: data/processed/full
+
+# ---- Model Architecture ------------------------------------------
+model:
+  in_features: 32
+  hidden1: 128
+  hidden2: 64
+  num_classes: 8
+  dropout: 0.3
+
+# ---- Training Hyperparameters ------------------------------------
+training:
+  epochs: 150
+  batch_size: 1024
+  lr: 0.001
+  weight_decay: 0.0001
+  patience: 15           # early stopping patience (epochs)
+  num_workers: 4
+
+# ---- FL Partitioning (Phase 4 — set later) -----------------------
+federation:
+  num_clients: 20
+  partitioning: non_iid        # options: iid | non_iid
+  dirichlet_alpha: 0.5
+  client_data_dir: data/partitions

@@ -1,0 +1,7 @@
+MERGED_CSV/
+MERGED_CSV.zip
+Implementation_Plan.md
+/data/
+.venv/
+__pycache__/
+*.pyc
