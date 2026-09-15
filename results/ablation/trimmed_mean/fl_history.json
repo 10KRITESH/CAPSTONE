@@ -1,0 +1,48 @@
+[
+  {
+    "round": 1,
+    "num_clients": 20,
+    "val_accuracy": 0.33786042624320933,
+    "val_macro_f1": 0.2671518964829349,
+    "val_macro_prec": 0.27348873878593677,
+    "val_macro_rec": 0.33048126520681265,
+    "per_class_f1": {
+      "BENIGN": 0.2922713466081674,
+      "DDOS": 0.6805633802816902,
+      "DOS": 0.0,
+      "MIRAI": 0.7024291497975709,
+      "RECON": 0.3142857142857143,
+      "MITM": 0.0,
+      "WEBAPP": 0.0,
+      "MALWARE": 0.1476655808903366
+    },
+    "client_train_loss": 2.194922924041748,
+    "client_train_acc": 0.2595478892326355,
+    "comm_bytes": 1101760,
+    "agg_time_ms": 25.76,
+    "val_time_ms": 0.0
+  },
+  {
+    "round": 2,
+    "num_clients": 20,
+    "val_accuracy": 0.39908065190137904,
+    "val_macro_f1": 0.2766043366541183,
+    "val_macro_prec": 0.2616115178385209,
+    "val_macro_rec": 0.38200000000000006,
+    "per_class_f1": {
+      "BENIGN": 0.34499396863691195,
+      "DDOS": 0.6815892557358701,
+      "DOS": 0.0,
+      "MIRAI": 0.9324324324324325,
+      "RECON": 0.25381903642773207,
+      "MITM": 0.0,
+      "WEBAPP": 0.0,
+      "MALWARE": 0.0
+    },
+    "client_train_loss": 1.6828954219818115,
+    "client_train_acc": 0.5502201914787292,
+    "comm_bytes": 1101760,
+    "agg_time_ms": 10.4,
+    "val_time_ms": 0.0
+  }
+]

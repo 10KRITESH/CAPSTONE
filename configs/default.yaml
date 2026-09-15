@@ -8,7 +8,7 @@ project:
 
 # ---- Paths --------------------------------------------------------
 paths:
-  raw_data_dir: data/raw/MERGED_CSV
+  raw_data_dir: MERGED_CSV
   processed_dir: data/processed
   metadata_dir: data/metadata
   label_mapping: configs/label_mapping.yaml

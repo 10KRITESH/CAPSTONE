@@ -1,7 +1,14 @@
 MERGED_CSV/
 MERGED_CSV.zip
-Implementation_Plan.md
-/data/
+data/raw/
+data/processed/
+data/partitions/
+data/audit.db
+data/test_audit.db
 .venv/
+venv/
 __pycache__/
 *.pyc
+.DS_Store
+results/baseline/dev/best_model.pt
+results/federated/simulation/best_global_model.pt

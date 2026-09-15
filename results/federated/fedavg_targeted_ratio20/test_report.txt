@@ -1,0 +1,14 @@
+              precision    recall  f1-score   support
+
+      BENIGN       0.36      0.86      0.50      1752
+        DDOS       0.82      0.97      0.89     54562
+         DOS       0.90      0.09      0.17     13011
+       MIRAI       0.71      0.99      0.82      4201
+       RECON       0.30      0.25      0.27      1478
+        MITM       0.00      0.00      0.00       776
+      WEBAPP       0.00      0.00      0.00      1061
+     MALWARE       0.00      0.00      0.00       441
+
+    accuracy                           0.78     77282
+   macro avg       0.38      0.40      0.33     77282
+weighted avg       0.78      0.78      0.72     77282
