@@ -6,3 +6,6 @@ numpy>=1.26
 torch>=2.2
 matplotlib>=3.8
 seaborn>=0.13
+web3>=7.0
+py-solc-x>=2.0
+eth-tester>=0.12
