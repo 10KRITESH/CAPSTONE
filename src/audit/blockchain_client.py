@@ -22,11 +22,12 @@ class BlockchainClient:
     Args:
         rpc_url: RPC endpoint URL for Besu / EVM node (optional).
     """
+    _shared_ledger: dict[str, dict] = {}
 
     def __init__(self, rpc_url: Optional[str] = None) -> None:
         self.rpc_url = rpc_url
         self.w3 = None
-        self.ledger: dict[str, dict] = {}  # Fallback in-memory immutable ledger
+        self.ledger = self._shared_ledger  # Shared in-memory immutable ledger for simulation
         self.current_block = 100
 
         if rpc_url:
