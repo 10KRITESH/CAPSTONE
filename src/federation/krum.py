@@ -17,7 +17,7 @@ def aggregate_krum(
     updates: list[dict[str, torch.Tensor]],
     global_dict: dict[str, torch.Tensor],
     f: int = 2,
-    m: int = 1,
+    m: int | None = None,
 ) -> tuple[dict[str, torch.Tensor], float]:
     """
     Krum / Multi-Krum aggregation.
@@ -26,7 +26,7 @@ def aggregate_krum(
         updates: List of client parameter update dictionaries Δ_i.
         global_dict: Global model state dict.
         f: Maximum expected number of Byzantine attackers.
-        m: Number of selected updates to average (m=1 is standard Krum, m>1 is Multi-Krum).
+        m: Number of selected updates to average (defaults to Multi-Krum m = max(1, n - 2f)).
 
     Returns:
         (aggregated_global_dict, wall_clock_time_ms)
@@ -35,6 +35,10 @@ def aggregate_krum(
     n = len(updates)
     if n == 0:
         return global_dict.copy(), 0.0
+
+    # Multi-Krum default: select top (n - 2f) closest updates
+    if m is None:
+        m = max(1, n - (2 * f))
 
     # Fall back if client count is too small for (n - f - 2)
     k_neighbors = max(1, n - f - 2)

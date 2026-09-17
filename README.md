@@ -100,12 +100,12 @@ Benchmark comparing standard aggregation algorithms vs. our **Proposed Class-Awa
 
 | Aggregation / Defense Scheme | Test Accuracy | Macro F1-Score | Target Attack Class F1 ($\text{RECON}$) | Attack Resilience Status |
 | :--- | :---: | :---: | :---: | :---: |
-| **FedAvg (Clean Baseline - 0% Attack)** | 80.25% | 39.29% | 34.33% | Clean Baseline |
-| **FedAvg (Poisoned - 20% Attack)** | 80.23% | 39.59% | **25.00%** | ❌ Vulnerable (Target F1 dropped by 9.33%) |
-| **Krum (Byzantine Distance)** | 80.28% | 37.52% | **0.00%** | ❌ Completely Collapsed on Skewed Target |
-| **Trimmed Mean ($\beta=0.10$)** | 80.68% | 44.48% | 45.89% | 🟡 Robust Coordinate Averaging |
-| **Coordinate Median** | 80.32% | 41.05% | 49.59% | 🟡 Robust Coordinate Median |
-| **Proposed Class-Aware Trust Defense** | **80.31%** | **41.16%** | **31.28%** | 🛡️ **Secured (Decoupled Head/Body Protection)** |
+| **FedAvg (Clean Baseline - 0% Attack)** | 80.51% | 42.13% | 42.26% | Clean Baseline |
+| **FedAvg (Poisoned - 20% Attack)** | 80.23% | 40.07% | **21.61%** | ❌ Vulnerable (Target F1 dropped by 20.65%) |
+| **Multi-Krum ($m=n-2f$)** | 80.77% | 45.67% | 50.81% | 🟡 Robust Byzantine Distance Filter |
+| **Trimmed Mean ($\beta=0.10$)** | 80.68% | 44.44% | 47.05% | 🟡 Robust Coordinate Averaging |
+| **Coordinate Median** | 80.27% | 40.81% | 49.58% | 🟡 Robust Coordinate Median |
+| **Proposed Class-Aware Trust Defense** | **80.92%** | **50.49%** | **46.23%** | 🛡️ **Highest Accuracy & Macro-F1 (Secured + Audited)** |
 
 ---
 
