@@ -85,16 +85,35 @@ class FLClient:
             df_train = self.attack.poison_data(df_train, round_num=round_num)
 
         # 2. Build local PyTorch TensorDataset & DataLoader
-        X_np = df_train[self.feature_cols].to_numpy(dtype="float32")
-        y_np = df_train["label"].to_numpy(dtype="int64")
+        X_np = df_train[self.feature_cols].to_numpy(dtype="float32").copy()
+        y_np = df_train["label"].to_numpy(dtype="int64").copy()
 
         X_tensor = torch.from_numpy(X_np)
         y_tensor = torch.from_numpy(y_np)
 
-        dataset = TensorDataset(X_tensor, y_tensor)
-        loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, drop_last=(len(dataset) > batch_size)
+        # ── BUG FIX: GPU pre-load optimisation ───────────────────────────────
+        # Move the client's partition to VRAM once instead of transferring each
+        # batch through PCIe. Only when dataset fits comfortably in free VRAM.
+        dataset_mb = (X_tensor.nelement() * 4) / 1e6
+        vram_free_mb = (
+            (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved(0)) / 1e6
+            if self.device.type == "cuda" else 0
         )
+        if self.device.type == "cuda" and dataset_mb < vram_free_mb * 0.20:
+            X_tensor = X_tensor.to(self.device)
+            y_tensor = y_tensor.to(self.device)
+            dataset = TensorDataset(X_tensor, y_tensor)
+            loader = DataLoader(
+                dataset, batch_size=batch_size, shuffle=True,
+                num_workers=0, drop_last=(len(dataset) > batch_size)
+            )
+        else:
+            dataset = TensorDataset(X_tensor, y_tensor)
+            loader = DataLoader(
+                dataset, batch_size=batch_size, shuffle=True,
+                drop_last=(len(dataset) > batch_size)
+            )
+
 
         # 3. Instantiate local model initialized with global weights
         local_model = IDS_MLP(**global_model.config).to(self.device)

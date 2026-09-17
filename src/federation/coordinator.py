@@ -76,10 +76,17 @@ class FLCoordinator:
         # Build global model
         self.global_model = build_model(config, self.device)
 
-        # Build data loaders for server-side evaluation
+        # Build data loaders for server-side evaluation (preload to GPU if CUDA)
         batch_size = config.get("training", {}).get("batch_size", 1024) * 2
-        self.server_val_loader = DataLoader(server_val_ds, batch_size=batch_size, shuffle=False)
-        self.test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        if self.device.type == "cuda" and hasattr(server_val_ds, "X") and hasattr(server_val_ds, "y"):
+            from torch.utils.data import TensorDataset
+            server_val_tensor_ds = TensorDataset(server_val_ds.X.to(self.device), server_val_ds.y.to(self.device))
+            self.server_val_loader = DataLoader(server_val_tensor_ds, batch_size=batch_size, shuffle=False)
+            test_tensor_ds = TensorDataset(test_ds.X.to(self.device), test_ds.y.to(self.device))
+            self.test_loader = DataLoader(test_tensor_ds, batch_size=batch_size, shuffle=False)
+        else:
+            self.server_val_loader = DataLoader(server_val_ds, batch_size=batch_size, shuffle=False)
+            self.test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
         # Class names for evaluation report
         label_mapping_path = Path(config["paths"]["label_mapping"])
@@ -145,6 +152,8 @@ class FLCoordinator:
 
         for c_id in client_ids:
             self.cold_start.register_client(c_id, round_num)
+            self.cold_start.record_round(c_id)  # ← BUG FIX: tick observation counter
+
 
         updates = []
         sample_counts = []
@@ -183,6 +192,10 @@ class FLCoordinator:
             for c_id, vr in zip(client_ids, val_results):
                 rep_vector = self.rep_manager.update_reputation(c_id, vr)
                 ev_rec = self.evidence_tracker.update_evidence(c_id, vr, rep_vector)
+
+                # ── BUG FIX: capture real prior state BEFORE update ────────
+                old_state_value = self.state_machine.get_state(c_id).value
+
                 new_state, changed, reason = self.state_machine.update_state(c_id, ev_rec, round_num)
                 sf = self.state_machine.get_state_factor(c_id, ev_rec.evidence_score)
                 state_factors[c_id] = sf
@@ -192,17 +205,17 @@ class FLCoordinator:
                     rec_dict = {
                         "round": round_num,
                         "client_id": str(c_id),
-                        "old_state": "TRUSTED",
+                        "old_state": old_state_value,
                         "new_state": new_state.value,
                         "evidence_score": ev_rec.evidence_score,
                         "reason": reason,
                     }
                     rec_hash = compute_record_hash(rec_dict)
                     tx_hash, block_num = self.bc_client.record_decision(
-                        round_num, c_id, "TRUSTED", new_state.value, ev_rec.evidence_score, rec_hash
+                        round_num, c_id, old_state_value, new_state.value, ev_rec.evidence_score, rec_hash
                     )
                     self.db_repo.save_state_transition(
-                        round_num, c_id, "TRUSTED", new_state.value, ev_rec.evidence_score, reason
+                        round_num, c_id, old_state_value, new_state.value, ev_rec.evidence_score, reason
                     )
                     self.db_repo.save_audit_record(
                         round_num, c_id, rec_dict, rec_hash, tx_hash, block_num

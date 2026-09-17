@@ -110,14 +110,16 @@ class UpdateValidator:
 
             # Flag suspicious indicators
             flags = []
-            if cos_sim < 0.30:
+            if cos_sim < 0.0:
                 flags.append("LOW_COSINE_SIMILARITY")
-            if abs(z_score) > 3.0:
+            if abs(z_score) > 3.5:
                 flags.append("ABNORMAL_UPDATE_NORM")
-            if global_impact < -0.10:
+            if global_impact < -0.25:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
             for cls, imp in per_class_impact.items():
-                if imp < -0.20:
+                # Only flag degradation if the base model had already established measurable capability
+                # (base_class_f1 >= 0.25) to prevent noise on unlearned or rare classes from triggering false alerts
+                if base_class_f1.get(cls, 0.0) >= 0.25 and imp < -0.25:
                     flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

@@ -58,11 +58,32 @@ class TemporalEvidenceTracker:
         rec = self.get_record(client_id)
         rec.total_rounds += 1
 
-        # Determine if current round is suspicious (bad_round = 1 or 0)
-        has_flags = len(val_result.suspicious_flags) > 0
-        has_low_rep = any(score < self.reputation_drop_threshold for score in reputation_vector.values())
+        # Critical anomaly flags (indicative of active poisoning / scaling attacks)
+        has_critical_flags = any(
+            f in val_result.suspicious_flags
+            for f in ["LOW_COSINE_SIMILARITY", "ABNORMAL_UPDATE_NORM", "GLOBAL_PERFORMANCE_DEGRADATION"]
+        )
+        has_class_flags = any(f.startswith("TARGET_CLASS_DEGRADATION_") for f in val_result.suspicious_flags)
 
-        is_bad = 1 if (has_flags or has_low_rep) else 0
+        past_observation = rec.total_rounds > 3
+        has_overall_low_rep = (
+            past_observation
+            and (sum(reputation_vector.values()) / max(1, len(reputation_vector))) < self.reputation_drop_threshold
+        )
+        has_flagged_class_drop = (
+            past_observation
+            and any(
+                reputation_vector.get(f.replace("TARGET_CLASS_DEGRADATION_", ""), 1.0) < self.reputation_drop_threshold
+                for f in val_result.suspicious_flags if f.startswith("TARGET_CLASS_DEGRADATION_")
+            )
+        )
+
+        # In observation window (rounds 1-3), only critical anomalies trigger bad_round.
+        # After observation window, targeted degradation with low reputation or global low reputation also triggers.
+        if past_observation:
+            is_bad = 1 if (has_critical_flags or has_flagged_class_drop or has_overall_low_rep) else 0
+        else:
+            is_bad = 1 if has_critical_flags else 0
 
         # Update EWMA evidence score: E_t = rho * E_{t-1} + (1 - rho) * bad_round
         rec.evidence_score = round(

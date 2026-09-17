@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import yaml
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, WeightedRandomSampler, TensorDataset
 
 # ── Project imports ───────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -151,21 +151,57 @@ def train(config: dict, dev_mode: bool) -> dict:
         num_samples=len(train_ds),
         replacement=True,
     )
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        sampler=sampler,
-        num_workers=num_workers,
-        pin_memory=(device.type == "cuda"),
-        drop_last=True,
+
+    # ── GPU pre-load optimisation ─────────────────────────────────────────────
+    # The dev split is ~45 MB (355k × 32 × float32) — tiny vs 4 GB VRAM.
+    # Moving the full tensor to GPU once eliminates per-batch CPU→GPU transfers
+    # and allows num_workers=0, removing the DataLoader bottleneck entirely.
+    # Falls back to normal CPU DataLoader for the full split or when no GPU.
+    dataset_mb = (train_ds.X.nelement() * 4) / 1e6
+    vram_free_mb = (
+        (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved(0)) / 1e6
+        if device.type == "cuda" else 0
     )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size * 2,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=(device.type == "cuda"),
-    )
+    use_gpu_preload = device.type == "cuda" and dataset_mb < vram_free_mb * 0.25
+
+    if use_gpu_preload:
+        log.info(f"GPU pre-load: moving {dataset_mb:.0f} MB dataset to VRAM (free: {vram_free_mb:.0f} MB)")
+        X_gpu = train_ds.X.to(device)
+        y_gpu = train_ds.y.to(device)
+        sw_gpu = sample_weights.to(device)
+        gpu_sampler = WeightedRandomSampler(weights=sw_gpu, num_samples=len(train_ds), replacement=True)
+        train_loader = DataLoader(
+            TensorDataset(X_gpu, y_gpu),
+            batch_size=batch_size,
+            sampler=gpu_sampler,
+            num_workers=0,   # data already on GPU — no workers needed
+            drop_last=True,
+        )
+        X_val_gpu = val_ds.X.to(device)
+        y_val_gpu = val_ds.y.to(device)
+        val_loader = DataLoader(
+            TensorDataset(X_val_gpu, y_val_gpu),
+            batch_size=batch_size * 2,
+            shuffle=False,
+            num_workers=0,
+        )
+    else:
+        log.info(f"Standard CPU DataLoader (dataset {dataset_mb:.0f} MB, VRAM headroom {vram_free_mb:.0f} MB)")
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=(device.type == "cuda"),
+            drop_last=True,
+        )
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=batch_size * 2,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=(device.type == "cuda"),
+        )
 
     # ── Model ─────────────────────────────────────────────────────────────────
     model = build_model(config, device)
