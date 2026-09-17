@@ -8,8 +8,10 @@ Manages interaction with the permissioned blockchain node / EVM network:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -23,12 +25,22 @@ class BlockchainClient:
         rpc_url: RPC endpoint URL for Besu / EVM node (optional).
     """
     _shared_ledger: dict[str, dict] = {}
+    LEDGER_FILE = Path("data/blockchain_ledger.json")
 
     def __init__(self, rpc_url: Optional[str] = None) -> None:
         self.rpc_url = rpc_url
         self.w3 = None
-        self.ledger = self._shared_ledger  # Shared in-memory immutable ledger for simulation
-        self.current_block = 100
+        self.LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        if not self._shared_ledger and self.LEDGER_FILE.exists():
+            try:
+                with open(self.LEDGER_FILE, "r") as f:
+                    self._shared_ledger.update(json.load(f))
+            except Exception as e:
+                log.warning(f"Could not load persistent ledger: {e}")
+
+        self.ledger = self._shared_ledger
+        self.current_block = 100 + len(self.ledger)
 
         if rpc_url:
             try:
@@ -72,8 +84,21 @@ class BlockchainClient:
             "timestamp": time.time(),
         }
         self.ledger[record_hash] = entry
+
+        try:
+            with open(self.LEDGER_FILE, "w") as f:
+                json.dump(self.ledger, f, indent=2)
+        except Exception as e:
+            log.warning(f"Could not persist ledger to disk: {e}")
+
         return tx_hash, self.current_block
 
     def get_decision(self, record_hash: str) -> dict | None:
         """Fetch on-chain decision record by hash."""
+        if record_hash not in self.ledger and self.LEDGER_FILE.exists():
+            try:
+                with open(self.LEDGER_FILE, "r") as f:
+                    self._shared_ledger.update(json.load(f))
+            except Exception:
+                pass
         return self.ledger.get(record_hash)

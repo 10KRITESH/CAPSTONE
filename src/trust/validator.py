@@ -92,10 +92,11 @@ class UpdateValidator:
             norm_val, z_score = compute_robust_norm_score(norms, idx)
 
             # Signal C: Semantic Validation Impact
-            # Temporarily apply client update to global model candidate
+            # Temporarily apply client update scaled by federated step proportion (1/N)
+            probe_scale = 1.0 / max(1, len(client_updates))
             candidate_model = IDS_MLP(**global_model.config).to(self.device)
             cand_dict = {
-                k: v.to(self.device) + update[k].to(self.device)
+                k: v.to(self.device) + (update[k].to(self.device) * probe_scale)
                 for k, v in global_model.state_dict().items()
             }
             candidate_model.load_state_dict(cand_dict)
@@ -110,15 +111,15 @@ class UpdateValidator:
 
             # Flag suspicious indicators
             flags = []
-            if cos_sim < 0.0:
+            if cos_sim < -0.50:
                 flags.append("LOW_COSINE_SIMILARITY")
-            if abs(z_score) > 3.5:
+            # Multi-signal correlated norm anomaly: extreme scale explosion OR norm outlier with negative alignment/degradation
+            if (abs(z_score) > 15.0) or (abs(z_score) > 4.0 and (cos_sim < 0.0 or global_impact < -0.03)):
                 flags.append("ABNORMAL_UPDATE_NORM")
-            if global_impact < -0.25:
+            if global_impact < -0.05:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
             for cls, imp in per_class_impact.items():
-                # Flag degradation if base model had confidence (base_class_f1 >= 0.20) and dropped by > 10%
-                if base_class_f1.get(cls, 0.0) >= 0.20 and imp < -0.10:
+                if base_class_f1.get(cls, 0.0) >= 0.15 and imp < -0.025:
                     flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

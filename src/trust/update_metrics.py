@@ -50,11 +50,10 @@ def compute_robust_norm_score(
     mad = float(np.median(np.abs(norms - median)))
 
     client_norm = client_norms[client_idx]
-    if mad < 1e-6:
-        z_score = 0.0
-    else:
-        # 0.6745 is the consistency factor for normal distribution
-        z_score = float(0.6745 * (client_norm - median) / mad)
+    # In Non-IID partitions, step counts vary naturally with client size (0.4x - 1.5x of median).
+    # Model scaling attacks introduce 5x-100x multipliers.
+    mad_effective = max(mad, 0.40 * median, 1e-4)
+    z_score = float(0.6745 * (client_norm - median) / mad_effective)
 
     return client_norm, z_score
 

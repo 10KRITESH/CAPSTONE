@@ -58,11 +58,12 @@ class TemporalEvidenceTracker:
         rec = self.get_record(client_id)
         rec.total_rounds += 1
 
-        # Critical anomaly flags (indicative of active poisoning / scaling attacks)
+        # Critical anomaly flags (indicative of active poisoning / scaling / sign-inversion attacks)
+        is_adversarial_cosine = (val_result.cosine_sim < -0.60) and (val_result.global_f1_impact < -0.03)
         has_critical_flags = any(
             f in val_result.suspicious_flags
-            for f in ["LOW_COSINE_SIMILARITY", "ABNORMAL_UPDATE_NORM", "GLOBAL_PERFORMANCE_DEGRADATION"]
-        )
+            for f in ["ABNORMAL_UPDATE_NORM", "GLOBAL_PERFORMANCE_DEGRADATION"]
+        ) or is_adversarial_cosine
         has_class_flags = any(f.startswith("TARGET_CLASS_DEGRADATION_") for f in val_result.suspicious_flags)
 
         past_observation = rec.total_rounds > 3
