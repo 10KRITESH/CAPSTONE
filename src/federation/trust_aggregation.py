@@ -44,7 +44,10 @@ def aggregate_trust_class_aware(
         sf = state_factors.get(c_id, 1.0)
         rep_dict = reputation_table.get(c_id, {cls: 1.0 for cls in class_names})
         base_trust = sum(rep_dict.values()) / max(1, len(rep_dict))
-        w = n_i * base_trust * sf
+        min_rep = min(rep_dict.values()) if rep_dict else 1.0
+        # If any class shows severe degradation (< 0.6), suppress shared body representation influence
+        body_trust = base_trust * (min_rep ** 2) if min_rep < 0.6 else base_trust
+        w = n_i * body_trust * sf
         body_weights.append(w)
 
     sum_body_w = sum(body_weights)
@@ -62,7 +65,9 @@ def aggregate_trust_class_aware(
         for c_id, n_i in zip(client_ids, sample_counts):
             sf = state_factors.get(c_id, 1.0)
             r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
-            w = n_i * r_ic * sf
+            # Quadratic scaling with sharp cutoff below 0.50 to block poisoned classes
+            r_effective = (r_ic ** 2) if r_ic >= 0.50 else 0.0
+            w = n_i * r_effective * sf
             c_weights.append(w)
 
         sum_w = sum(c_weights)

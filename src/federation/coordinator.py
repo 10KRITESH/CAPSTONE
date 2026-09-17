@@ -65,6 +65,7 @@ class FLCoordinator:
         test_ds: CICIoTDataset,
         aggregation_method: str = "trust_class_aware",
         device: torch.device | None = None,
+        init_weights_path: str | Path | None = None,
     ) -> None:
         self.config = config
         self.clients = clients
@@ -73,8 +74,13 @@ class FLCoordinator:
         self.aggregation_method = aggregation_method
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Build global model
+        # Build global model & load initial weights if provided
         self.global_model = build_model(config, self.device)
+        if init_weights_path and Path(init_weights_path).exists():
+            ckpt = torch.load(init_weights_path, map_location=self.device)
+            state_dict = ckpt.get("model_state_dict", ckpt) if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+            self.global_model.load_state_dict(state_dict)
+            log.info(f"Loaded initial global model weights from {init_weights_path}")
 
         # Build data loaders for server-side evaluation (preload to GPU if CUDA)
         batch_size = config.get("training", {}).get("batch_size", 1024) * 2
@@ -125,16 +131,17 @@ class FLCoordinator:
         for update, n_i in zip(updates, sample_counts):
             weight = n_i / total_samples
             for k, delta in update.items():
+                d_dev = delta.to(self.device).to(global_dict[k].dtype)
                 if torch.is_floating_point(global_dict[k]):
-                    aggregated_update[k] += (delta.to(global_dict[k].dtype) * weight)
+                    aggregated_update[k] += (d_dev * weight)
                 else:
-                    aggregated_update[k] = delta.to(global_dict[k].dtype)
+                    aggregated_update[k] = d_dev
 
         for k in global_dict.keys():
             if torch.is_floating_point(global_dict[k]):
-                global_dict[k] = global_dict[k] + aggregated_update[k].to(self.device)
+                global_dict[k] = global_dict[k] + aggregated_update[k]
             else:
-                global_dict[k] = aggregated_update[k].to(self.device)
+                global_dict[k] = aggregated_update[k]
 
         self.global_model.load_state_dict(global_dict)
         return (time.time() - t0) * 1000.0

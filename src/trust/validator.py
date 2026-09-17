@@ -117,9 +117,8 @@ class UpdateValidator:
             if global_impact < -0.25:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
             for cls, imp in per_class_impact.items():
-                # Only flag degradation if the base model had already established measurable capability
-                # (base_class_f1 >= 0.25) to prevent noise on unlearned or rare classes from triggering false alerts
-                if base_class_f1.get(cls, 0.0) >= 0.25 and imp < -0.25:
+                # Flag degradation if base model had confidence (base_class_f1 >= 0.20) and dropped by > 10%
+                if base_class_f1.get(cls, 0.0) >= 0.20 and imp < -0.10:
                     flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

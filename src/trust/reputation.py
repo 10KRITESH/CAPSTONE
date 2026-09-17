@@ -87,7 +87,10 @@ class PerClassReputationManager:
             if cls in self.low_support_classes and imp < 0:
                 imp *= self.low_support_dampening
 
-            perf_q = max(0.0, min(1.0, 0.5 + imp))
+            if imp < 0:
+                perf_q = max(0.0, min(1.0, 0.5 + 3.0 * imp))
+            else:
+                perf_q = max(0.0, min(1.0, 0.5 + imp))
 
             # Quality composite score Q(i, c)
             q_score = (self.wp * perf_q) + (self.ws * sim_q) + (self.wn * norm_q)
@@ -95,7 +98,8 @@ class PerClassReputationManager:
 
             # EWMA update: R_t(i, c) = (1 - eta) * R_{t-1} + eta * Q_t
             r_prev = current_rep[cls]
-            r_new = (1.0 - self.eta) * r_prev + self.eta * q_score
+            effective_eta = 0.35 if imp < -0.05 else self.eta
+            r_new = (1.0 - effective_eta) * r_prev + effective_eta * q_score
             updated_rep[cls] = round(max(0.0, min(1.0, r_new)), 4)
 
         self.reputation_table[client_id] = updated_rep
