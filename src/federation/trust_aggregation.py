@@ -45,9 +45,10 @@ def aggregate_trust_class_aware(
         rep_dict = reputation_table.get(c_id, {cls: 1.0 for cls in class_names})
         base_trust = sum(rep_dict.values()) / max(1, len(rep_dict))
         min_rep = min(rep_dict.values()) if rep_dict else 1.0
-        # If any class shows severe degradation (< 0.6), suppress shared body representation influence
-        body_trust = base_trust * (min_rep ** 2) if min_rep < 0.6 else base_trust
-        w = n_i * body_trust * sf
+        # If any class shows severe degradation (< 0.70), suppress shared body representation influence
+        body_trust = base_trust * (min_rep ** 3) if min_rep < 0.70 else base_trust
+        # Sqrt sample scaling prevents massive majority clients from overpowering minority class representations
+        w = (n_i ** 0.5) * body_trust * sf
         body_weights.append(w)
 
     sum_body_w = sum(body_weights)
@@ -65,16 +66,19 @@ def aggregate_trust_class_aware(
         for c_id, n_i in zip(client_ids, sample_counts):
             sf = state_factors.get(c_id, 1.0)
             r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
-            # Quadratic scaling with sharp cutoff below 0.50 to block poisoned classes
-            r_effective = (r_ic ** 2) if r_ic >= 0.50 else 0.0
-            w = n_i * r_effective * sf
+            # Cubic scaling with cutoff at 0.65 to strictly lock out poisoned classes
+            r_effective = (r_ic ** 3) if r_ic >= 0.65 else 0.0
+            w = (n_i ** 0.5) * r_effective * sf
             c_weights.append(w)
 
         sum_w = sum(c_weights)
         if sum_w > 1e-8:
             head_class_weights[c_idx] = [w / sum_w for w in c_weights]
         else:
-            head_class_weights[c_idx] = [1.0 / max(1, len(updates))] * len(updates)
+            best_idx = max(range(len(client_ids)), key=lambda idx: reputation_table.get(client_ids[idx], {}).get(cls_name, 0.0))
+            fb = [0.0] * len(updates)
+            fb[best_idx] = 1.0
+            head_class_weights[c_idx] = fb
 
     # 3. Apply aggregated updates
     aggregated_global = {k: v.clone() for k, v in global_dict.items()}

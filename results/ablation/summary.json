@@ -1,38 +1,38 @@
 {
   "FedAvg (Clean - 0% Attack)": {
-    "accuracy": 0.805142206464636,
-    "macro_f1": 0.4212851540834848,
-    "recon_f1": 0.4225690276110444,
+    "accuracy": 0.8062291348567584,
+    "macro_f1": 0.44370670121549655,
+    "recon_f1": 0.434120945134161,
     "method": "fedavg"
   },
   "FedAvg (Poisoned - 20% Attack)": {
-    "accuracy": 0.80233430811832,
-    "macro_f1": 0.4006502099777506,
-    "recon_f1": 0.21611940298507462,
+    "accuracy": 0.8014026552107865,
+    "macro_f1": 0.3856921771269913,
+    "recon_f1": 0.19770946353224833,
     "method": "fedavg"
   },
   "Krum (Byzantine Distance)": {
-    "accuracy": 0.807704251960353,
-    "macro_f1": 0.4567214052357372,
-    "recon_f1": 0.5080831408775982,
+    "accuracy": 0.8062550141041899,
+    "macro_f1": 0.44712279982362146,
+    "recon_f1": 0.5064687168610816,
     "method": "krum"
   },
   "Trimmed Mean": {
-    "accuracy": 0.8067725990528195,
-    "macro_f1": 0.4444487770607154,
-    "recon_f1": 0.4705128205128205,
+    "accuracy": 0.8061903159856111,
+    "macro_f1": 0.4389731823396495,
+    "recon_f1": 0.44132069303694016,
     "method": "trimmed_mean"
   },
   "Coordinate Median": {
-    "accuracy": 0.8026836779586449,
-    "macro_f1": 0.4081295231269424,
-    "recon_f1": 0.49583333333333335,
+    "accuracy": 0.8028260138195181,
+    "macro_f1": 0.417867258994681,
+    "recon_f1": 0.4943170076462079,
     "method": "median"
   },
   "Proposed Defense (Class-Aware Trust)": {
-    "accuracy": 0.8092181879350948,
-    "macro_f1": 0.5049236495222953,
-    "recon_f1": 0.4623287671232877,
+    "accuracy": 0.8075360368520483,
+    "macro_f1": 0.46117758822486465,
+    "recon_f1": 0.5036996437380105,
     "method": "trust_class_aware"
   }
 }
