@@ -1,0 +1,37 @@
+[
+  {
+    "Method": "fedavg",
+    "Comm Size (MB)": 0.53,
+    "Agg Latency (ms)": 7.38,
+    "Val Latency (ms)": 0.0,
+    "Total Round Latency (ms)": 7.38
+  },
+  {
+    "Method": "krum",
+    "Comm Size (MB)": 0.53,
+    "Agg Latency (ms)": 2.14,
+    "Val Latency (ms)": 0.0,
+    "Total Round Latency (ms)": 2.14
+  },
+  {
+    "Method": "trimmed_mean",
+    "Comm Size (MB)": 0.53,
+    "Agg Latency (ms)": 5.31,
+    "Val Latency (ms)": 0.0,
+    "Total Round Latency (ms)": 5.31
+  },
+  {
+    "Method": "median",
+    "Comm Size (MB)": 0.53,
+    "Agg Latency (ms)": 4.02,
+    "Val Latency (ms)": 0.0,
+    "Total Round Latency (ms)": 4.02
+  },
+  {
+    "Method": "trust_class_aware",
+    "Comm Size (MB)": 0.53,
+    "Agg Latency (ms)": 13.05,
+    "Val Latency (ms)": 381.17,
+    "Total Round Latency (ms)": 394.23
+  }
+]
