@@ -107,6 +107,24 @@ Benchmark comparing standard aggregation algorithms vs. our **Proposed Class-Awa
 | **Coordinate Median** | 80.28% | 41.79% | 49.43% | 🟡 Robust Coordinate Median |
 | **Proposed Class-Aware Trust Defense** | **80.75%** | **46.12%** | **50.37%** | 🛡️ **Highest Accuracy & Macro-F1 (Secured + Audited)** |
 
+#### 📊 Publication-Grade Benchmark Visualizations
+
+<p align="center">
+  <img src="results/plots/defense_shootout.png" width="95%" alt="Defense Shootout Bar Chart" />
+</p>
+
+<p align="center">
+  <img src="results/plots/round_convergence.png" width="95%" alt="10-Round Convergence Trajectory" />
+</p>
+
+<p align="center">
+  <img src="results/plots/per_class_f1_comparison.png" width="95%" alt="Per-Class F1 Comparison" />
+</p>
+
+<p align="center">
+  <img src="results/plots/client_reputation_heatmap.png" width="85%" alt="Client Reputation Heatmap" />
+</p>
+
 ---
 
 ### 3. Systems Overhead & Latency Profile
@@ -119,6 +137,10 @@ Benchmarked on NVIDIA GeForce RTX 3050 Laptop GPU (CUDA-enabled):
 | **Defense Aggregation Latency** | **13.59 ms** | Real-time coordinate & trust calculation |
 | **Multi-Signal Validation Latency** | **336.79 ms** | Probing step validation across all 10 clients |
 | **Total Security Overhead per Round** | **350.38 ms** | Total defense execution time is $< 0.45$s per round |
+
+<p align="center">
+  <img src="results/plots/overhead_profile.png" width="95%" alt="Systems Overhead Profile" />
+</p>
 
 ---
 
