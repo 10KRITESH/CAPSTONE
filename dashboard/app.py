@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import time
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,6 +41,14 @@ st.markdown(
         padding: 15px;
         border-radius: 10px;
         border: 1px solid #334155;
+    }
+    .stMetric label {
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+    }
+    .stMetric [data-testid="stMetricValue"] {
+        color: #f8fafc !important;
+        font-weight: bold !important;
     }
     .status-trusted {
         background-color: #065f46; color: #34d399; padding: 4px 12px; border-radius: 6px; font-weight: bold;
@@ -461,11 +470,24 @@ elif selected_view.startswith("6"):
             detection_rate = 100.0
             false_quarantine = 10.0
 
+        st.markdown("#### Live Performance Trajectory Under Attack")
+        chart_placeholder = st.empty()
+
         for idx, r in enumerate(rounds):
             sim_progress.progress((idx + 1) / sim_rounds)
-            status_box.text(f"Round {r}/{sim_rounds} | Macro-F1: {macro_f1[idx]:.2f}% | RECON F1: {recon_f1[idx]:.2f}%")
+            status_box.info(f"⏳ **Simulating Federated Learning Round {r}/{sim_rounds}** | Global Macro-F1: `{macro_f1[idx]:.2f}%` | RECON Detection F1: `{recon_f1[idx]:.2f}%`")
+            
+            # Draw curve dynamically point by point
+            curr_df = pd.DataFrame({
+                "Round": rounds[:idx + 1],
+                "Overall Global Macro-F1": macro_f1[:idx + 1],
+                "Target Class (RECON) F1": recon_f1[:idx + 1],
+            }).set_index("Round")
+            chart_placeholder.line_chart(curr_df)
+            time.sleep(0.08)
 
-        st.success("Simulation Complete! Calibrated against Verified Edge-IIoTset Benchmark Data.")
+        status_box.empty()
+        st.success("✔ Simulation Complete! Calibrated against Verified Edge-IIoTset Benchmark Data.")
 
         # Results summary metrics
         m1, m2, m3, m4 = st.columns(4)
@@ -473,14 +495,6 @@ elif selected_view.startswith("6"):
         m2.metric("Target Class (RECON) F1", f"{recon_f1[-1]:.2f}%")
         m3.metric("Malicious Detection Rate", f"{detection_rate:.1f}%")
         m4.metric("Honest False Quarantine Rate", f"{false_quarantine:.1f}%")
-
-        st.markdown("#### Performance Curves Under Attack")
-        df_sim = pd.DataFrame({
-            "Round": rounds,
-            "Overall Global Macro-F1": macro_f1,
-            "Target Class (RECON) F1": recon_f1,
-        }).set_index("Round")
-        st.line_chart(df_sim)
 
         if "Proposed" in defense_scheme:
             st.markdown("#### 🛡️ Defense Security Event Log")
