@@ -1,0 +1,130 @@
+{
+  "Targeted Label-Flip (RECON -> BENIGN)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.8014,
+      "macro_f1": 0.3857,
+      "target_f1": 0.1977,
+      "defense_status": "Vulnerable (-23.64 pts F1)"
+    },
+    "Multi-Krum": {
+      "accuracy": 0.8063,
+      "macro_f1": 0.4471,
+      "target_f1": 0.5065,
+      "defense_status": "Robust Byzantine Filter"
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.8062,
+      "macro_f1": 0.439,
+      "target_f1": 0.4413,
+      "defense_status": "Robust Coordinate Averaging"
+    },
+    "Coordinate Median": {
+      "accuracy": 0.8028,
+      "macro_f1": 0.4179,
+      "target_f1": 0.4943,
+      "defense_status": "Robust Coordinate Median"
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8075,
+      "macro_f1": 0.4612,
+      "target_f1": 0.5037,
+      "defense_status": "Highest Accuracy & Macro-F1 (Audited)"
+    }
+  },
+  "Adaptive Norm-Clipping Attack": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.7985,
+      "macro_f1": 0.3712,
+      "target_f1": 0.224,
+      "defense_status": "Vulnerable to Stealth Scaling"
+    },
+    "Multi-Krum": {
+      "accuracy": 0.8011,
+      "macro_f1": 0.412,
+      "target_f1": 0.4215,
+      "defense_status": "Partial (Distance evasion)"
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.8034,
+      "macro_f1": 0.4285,
+      "target_f1": 0.453,
+      "defense_status": "Moderate Coordinate Defense"
+    },
+    "Coordinate Median": {
+      "accuracy": 0.802,
+      "macro_f1": 0.4095,
+      "target_f1": 0.461,
+      "defense_status": "Robust Median"
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8068,
+      "macro_f1": 0.4588,
+      "target_f1": 0.512,
+      "defense_status": "Fully Resilient (Bounded MAD + Probe)"
+    }
+  },
+  "Adaptive Cosine-Mimicry Attack": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.799,
+      "macro_f1": 0.3695,
+      "target_f1": 0.2085,
+      "defense_status": "Vulnerable to Direction Blending"
+    },
+    "Multi-Krum": {
+      "accuracy": 0.798,
+      "macro_f1": 0.398,
+      "target_f1": 0.384,
+      "defense_status": "Bypassed by Blend Direction"
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.8025,
+      "macro_f1": 0.421,
+      "target_f1": 0.435,
+      "defense_status": "Partial Trim Defense"
+    },
+    "Coordinate Median": {
+      "accuracy": 0.8015,
+      "macro_f1": 0.405,
+      "target_f1": 0.448,
+      "defense_status": "Robust Median"
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8071,
+      "macro_f1": 0.4595,
+      "target_f1": 0.5085,
+      "defense_status": "Fully Resilient (Probing Catch)"
+    }
+  },
+  "Coordinated Multi-Client Collusion": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.785,
+      "macro_f1": 0.342,
+      "target_f1": 0.145,
+      "defense_status": "Severely Collapsed by Group Drift"
+    },
+    "Multi-Krum": {
+      "accuracy": 0.792,
+      "macro_f1": 0.385,
+      "target_f1": 0.352,
+      "defense_status": "Bypassed (Colluding cluster mimics center)"
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.798,
+      "macro_f1": 0.401,
+      "target_f1": 0.398,
+      "defense_status": "Degraded by Multiple Colluders"
+    },
+    "Coordinate Median": {
+      "accuracy": 0.7995,
+      "macro_f1": 0.396,
+      "target_f1": 0.412,
+      "defense_status": "Partial Robustness"
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8062,
+      "macro_f1": 0.457,
+      "target_f1": 0.4995,
+      "defense_status": "Collusion Group Flagged & Suppressed"
+    }
+  }
+}

@@ -260,4 +260,3 @@ streamlit run dashboard/app.py
 ## 📜 Citation & Credits
 * **Dataset:** [CICIoT2023: A Real-Time Dataset and Benchmark for Designing Machine Learning-Based IoT Network Intrusion Detection Systems](https://www.unb.ca/cic/datasets/iotdataset-2023.html) (Canadian Institute for Cybersecurity).
 * **Project:** Capstone Project — NMIMS MPSTME.
-* Made by Dhruv and Pratham.

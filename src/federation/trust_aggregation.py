@@ -27,9 +27,11 @@ def aggregate_trust_class_aware(
     reputation_table: dict[str | int, dict[str, float]],
     state_factors: dict[str | int, float],
     class_names: list[str],
+    disable_head_body_split: bool = False,
+    disable_state_factor: bool = False,
 ) -> tuple[dict[str, torch.Tensor], float]:
     """
-    Class-Aware & Trust-Weighted Aggregation.
+    Class-Aware & Trust-Weighted Aggregation with optional component ablation toggles.
 
     Returns:
         (updated_global_state_dict, wall_clock_time_ms)
@@ -41,7 +43,7 @@ def aggregate_trust_class_aware(
     # 1. Calculate Body weights per client
     body_weights = []
     for c_id, n_i in zip(client_ids, sample_counts):
-        sf = state_factors.get(c_id, 1.0)
+        sf = 1.0 if disable_state_factor else state_factors.get(c_id, 1.0)
         rep_dict = reputation_table.get(c_id, {cls: 1.0 for cls in class_names})
         base_trust = sum(rep_dict.values()) / max(1, len(rep_dict))
         min_rep = min(rep_dict.values()) if rep_dict else 1.0
@@ -59,26 +61,30 @@ def aggregate_trust_class_aware(
         norm_body_w = [1.0 / max(1, len(updates))] * len(updates)
 
     # 2. Calculate Head weights per client per class
-    # head_weights[c] = list of weights for each client
+    # If disable_head_body_split is True, use scalar body weights for the head layers as well
     head_class_weights = {c_idx: [] for c_idx in range(num_classes)}
-    for c_idx, cls_name in enumerate(class_names):
-        c_weights = []
-        for c_id, n_i in zip(client_ids, sample_counts):
-            sf = state_factors.get(c_id, 1.0)
-            r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
-            # Cubic scaling with cutoff at 0.65 to strictly lock out poisoned classes
-            r_effective = (r_ic ** 3) if r_ic >= 0.65 else 0.0
-            w = (n_i ** 0.5) * r_effective * sf
-            c_weights.append(w)
+    if disable_head_body_split:
+        for c_idx in range(num_classes):
+            head_class_weights[c_idx] = norm_body_w
+    else:
+        for c_idx, cls_name in enumerate(class_names):
+            c_weights = []
+            for c_id, n_i in zip(client_ids, sample_counts):
+                sf = 1.0 if disable_state_factor else state_factors.get(c_id, 1.0)
+                r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
+                # Cubic scaling with cutoff at 0.65 to strictly lock out poisoned classes
+                r_effective = (r_ic ** 3) if r_ic >= 0.65 else 0.0
+                w = (n_i ** 0.5) * r_effective * sf
+                c_weights.append(w)
 
-        sum_w = sum(c_weights)
-        if sum_w > 1e-8:
-            head_class_weights[c_idx] = [w / sum_w for w in c_weights]
-        else:
-            best_idx = max(range(len(client_ids)), key=lambda idx: reputation_table.get(client_ids[idx], {}).get(cls_name, 0.0))
-            fb = [0.0] * len(updates)
-            fb[best_idx] = 1.0
-            head_class_weights[c_idx] = fb
+            sum_w = sum(c_weights)
+            if sum_w > 1e-8:
+                head_class_weights[c_idx] = [w / sum_w for w in c_weights]
+            else:
+                best_idx = max(range(len(client_ids)), key=lambda idx: reputation_table.get(client_ids[idx], {}).get(cls_name, 0.0))
+                fb = [0.0] * len(updates)
+                fb[best_idx] = 1.0
+                head_class_weights[c_idx] = fb
 
     # 3. Apply aggregated updates
     aggregated_global = {k: v.clone() for k, v in global_dict.items()}
@@ -95,7 +101,7 @@ def aggregate_trust_class_aware(
             aggregated_global[k] = global_dict[k] + agg_delta
 
         elif k.startswith("head."):
-            # Head layer aggregation using per-class reputation vector
+            # Head layer aggregation
             agg_delta = torch.zeros_like(global_dict[k])
             
             # head.weight: shape (num_classes, hidden2)

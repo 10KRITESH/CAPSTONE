@@ -66,12 +66,16 @@ class FLCoordinator:
         aggregation_method: str = "trust_class_aware",
         device: torch.device | None = None,
         init_weights_path: str | Path | None = None,
+        disable_head_body_split: bool = False,
+        disable_state_factor: bool = False,
     ) -> None:
         self.config = config
         self.clients = clients
         self.server_val_ds = server_val_ds
         self.test_ds = test_ds
         self.aggregation_method = aggregation_method
+        self.disable_head_body_split = disable_head_body_split
+        self.disable_state_factor = disable_state_factor
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Build global model & load initial weights if provided
@@ -231,7 +235,9 @@ class FLCoordinator:
             # Perform Class-Aware Trust Aggregation
             global_dict, agg_time_ms = aggregate_trust_class_aware(
                 self.global_model, updates, sample_counts, client_ids,
-                self.rep_manager.reputation_table, state_factors, self.class_names
+                self.rep_manager.reputation_table, state_factors, self.class_names,
+                disable_head_body_split=self.disable_head_body_split,
+                disable_state_factor=self.disable_state_factor,
             )
             self.global_model.load_state_dict(global_dict)
 

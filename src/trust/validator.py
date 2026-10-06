@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 
 from src.model.evaluate import evaluate
 from src.model.mlp import IDS_MLP
+from src.trust.collusion_detector import SubClusterCollusionDetector
 from src.trust.update_metrics import (
     compute_cosine_similarity,
     compute_geometric_median_reference,
@@ -35,6 +36,7 @@ class ValidationResult:
     cosine_sim: float
     global_f1_impact: float
     per_class_f1_impact: dict[str, float]
+    collusion_penalty: float = 0.0
     suspicious_flags: list[str] = field(default_factory=list)
     validation_time_ms: float = 0.0
 
@@ -58,6 +60,7 @@ class UpdateValidator:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
         self.device = device
+        self.collusion_detector = SubClusterCollusionDetector()
 
     def validate_updates(
         self,
@@ -73,17 +76,22 @@ class UpdateValidator:
         flat_updates = [flatten_update(u) for u in client_updates]
         ref_flat = compute_geometric_median_reference(flat_updates)
 
-        # 2. Calculate L2 norms for all client updates
+        # 2. Run Cross-Client Sub-Cluster Collusion Detection
+        collusion_penalties = self.collusion_detector.analyze_updates(
+            client_updates, client_ids, ref_flat, round_num
+        )
+
+        # 3. Calculate L2 norms for all client updates
         norms = [float(u.norm().item()) for u in flat_updates]
 
-        # 3. Evaluate baseline global model performance on server val set
+        # 4. Evaluate baseline global model performance on server val set
         base_val_metrics = evaluate(global_model, self.server_val_loader, self.device, self.class_names)
         base_macro_f1 = base_val_metrics["macro_f1"]
         base_class_f1 = {cls: m["f1"] for cls, m in base_val_metrics["per_class"].items()}
 
         results: list[ValidationResult] = []
 
-        # 4. Validate each candidate client update
+        # 5. Validate each candidate client update
         for idx, (update, client_id, flat_u) in enumerate(zip(client_updates, client_ids, flat_updates)):
             # Signal A: Cosine Similarity
             cos_sim = compute_cosine_similarity(flat_u, ref_flat)
@@ -92,7 +100,6 @@ class UpdateValidator:
             norm_val, z_score = compute_robust_norm_score(norms, idx)
 
             # Signal C: Semantic Validation Impact
-            # Temporarily apply client update scaled by federated step proportion (1/N)
             probe_scale = 1.0 / max(1, len(client_updates))
             candidate_model = IDS_MLP(**global_model.config).to(self.device)
             cand_dict = {
@@ -109,15 +116,19 @@ class UpdateValidator:
                 for cls in self.class_names
             }
 
+            # Collusion penalty for this client
+            c_penalty = collusion_penalties.get(client_id, 0.0)
+
             # Flag suspicious indicators
             flags = []
             if cos_sim < -0.50:
                 flags.append("LOW_COSINE_SIMILARITY")
-            # Multi-signal correlated norm anomaly: extreme scale explosion OR norm outlier with negative alignment/degradation
             if (abs(z_score) > 15.0) or (abs(z_score) > 4.0 and (cos_sim < 0.0 or global_impact < -0.03)):
                 flags.append("ABNORMAL_UPDATE_NORM")
             if global_impact < -0.05:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
+            if c_penalty > 0.40:
+                flags.append("COORDINATED_COLLUSION_DETECTED")
             for cls, imp in per_class_impact.items():
                 if base_class_f1.get(cls, 0.0) >= 0.15 and imp < -0.025:
                     flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
@@ -132,6 +143,7 @@ class UpdateValidator:
                 cosine_sim=cos_sim,
                 global_f1_impact=global_impact,
                 per_class_f1_impact=per_class_impact,
+                collusion_penalty=c_penalty,
                 suspicious_flags=flags,
                 validation_time_ms=elapsed_ms,
             )

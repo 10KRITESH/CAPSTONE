@@ -1,14 +1,43 @@
-MERGED_CSV/
-MERGED_CSV.zip
-data/raw/
-data/processed/
-data/partitions/
-data/audit.db
-data/test_audit.db
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 .venv/
 venv/
-__pycache__/
-*.pyc
-.DS_Store
-results/baseline/dev/best_model.pt
-results/federated/simulation/best_global_model.pt
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Large datasets & temporary partitions (can be regenerated)
+data/partitions/
+data/processed/
+MERGED_CSV/
+*.csv
+
+# Logs & temp stores
+*.log
+scratch/

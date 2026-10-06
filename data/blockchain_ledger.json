@@ -6,9 +6,9 @@
     "new_state": "QUARANTINED",
     "evidence_score": 0.78,
     "record_hash": "fbaf13ac4fba3a24679d67dce4299683e2c7fdc5403659c9189274f3494d589b",
-    "tx_hash": "0xfbaf13ac4fba3a246aac29f8",
-    "block_num": 101,
-    "timestamp": 1789667832.9196577
+    "tx_hash": "0xfbaf13ac4fba3a246ab26150",
+    "block_num": 132,
+    "timestamp": 1790075216.4069421
   },
   "220de7c96b77c3e2cbc3deb6b43b212058637edcaca320fbf529db9d1f162e36": {
     "round_id": 3,
@@ -138,9 +138,9 @@
     "new_state": "QUARANTINED",
     "evidence_score": 0.82,
     "record_hash": "4b06fdc5558516f8caff92582ab8cf3ef73bb031fc023597d6c9d2d44ad1b7f5",
-    "tx_hash": "0x4b06fdc5558516f86aac23fd",
-    "block_num": 101,
-    "timestamp": "2026-09-17 17:31:41"
+    "tx_hash": "0x4b06fdc5558516f86ab24221",
+    "block_num": 132,
+    "timestamp": 1790067233.3344579
   },
   "24ec7a0e79959f475832a502bab8a52e2adcfcc15fb81941237c6dd6021d12f5": {
     "round_id": 5,
