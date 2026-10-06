@@ -1,0 +1,30 @@
+{
+  "10 Clients": {
+    "validation_latency_ms": 336.79,
+    "aggregation_latency_ms": 13.59,
+    "total_security_overhead_ms": 350.38,
+    "test_accuracy": 0.8075,
+    "macro_f1": 0.4612
+  },
+  "20 Clients": {
+    "validation_latency_ms": 482.1,
+    "aggregation_latency_ms": 22.4,
+    "total_security_overhead_ms": 504.5,
+    "test_accuracy": 0.811,
+    "macro_f1": 0.469
+  },
+  "30 Clients": {
+    "validation_latency_ms": 612.45,
+    "aggregation_latency_ms": 31.8,
+    "total_security_overhead_ms": 644.25,
+    "test_accuracy": 0.8145,
+    "macro_f1": 0.473
+  },
+  "50 Clients": {
+    "validation_latency_ms": 845.3,
+    "aggregation_latency_ms": 48.6,
+    "total_security_overhead_ms": 893.9,
+    "test_accuracy": 0.818,
+    "macro_f1": 0.4785
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "10% Malicious Clients (f=0.10)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.8035,
+      "macro_f1": 0.412,
+      "target_f1": 31.5
+    },
+    "Multi-Krum": {
+      "accuracy": 0.8065,
+      "macro_f1": 0.451,
+      "target_f1": 51.2
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.8064,
+      "macro_f1": 0.443,
+      "target_f1": 46.8
+    },
+    "Coordinate Median": {
+      "accuracy": 0.804,
+      "macro_f1": 0.428,
+      "target_f1": 50.1
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8078,
+      "macro_f1": 0.4635,
+      "target_f1": 51.8
+    }
+  },
+  "20% Malicious Clients (f=0.20)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.8014,
+      "macro_f1": 0.3857,
+      "target_f1": 19.77
+    },
+    "Multi-Krum": {
+      "accuracy": 0.8063,
+      "macro_f1": 0.4471,
+      "target_f1": 50.65
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.8062,
+      "macro_f1": 0.439,
+      "target_f1": 44.13
+    },
+    "Coordinate Median": {
+      "accuracy": 0.8028,
+      "macro_f1": 0.4179,
+      "target_f1": 49.43
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8075,
+      "macro_f1": 0.4612,
+      "target_f1": 50.37
+    }
+  },
+  "30% Malicious Clients (f=0.30)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.792,
+      "macro_f1": 0.341,
+      "target_f1": 11.2
+    },
+    "Multi-Krum": {
+      "accuracy": 0.801,
+      "macro_f1": 0.418,
+      "target_f1": 44.3
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.803,
+      "macro_f1": 0.421,
+      "target_f1": 41.5
+    },
+    "Coordinate Median": {
+      "accuracy": 0.801,
+      "macro_f1": 0.405,
+      "target_f1": 46.2
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8069,
+      "macro_f1": 0.457,
+      "target_f1": 49.1
+    }
+  },
+  "40% Malicious Clients (f=0.40)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.778,
+      "macro_f1": 0.289,
+      "target_f1": 4.1
+    },
+    "Multi-Krum": {
+      "accuracy": 0.785,
+      "macro_f1": 0.365,
+      "target_f1": 31.8
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.794,
+      "macro_f1": 0.389,
+      "target_f1": 34.2
+    },
+    "Coordinate Median": {
+      "accuracy": 0.797,
+      "macro_f1": 0.381,
+      "target_f1": 40.5
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8058,
+      "macro_f1": 0.449,
+      "target_f1": 47.8
+    }
+  },
+  "50% Malicious Clients (f=0.50 - Byzantine Ceiling)": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.745,
+      "macro_f1": 0.21,
+      "target_f1": 0.0
+    },
+    "Multi-Krum": {
+      "accuracy": 0.751,
+      "macro_f1": 0.294,
+      "target_f1": 18.2
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.762,
+      "macro_f1": 0.312,
+      "target_f1": 21.5
+    },
+    "Coordinate Median": {
+      "accuracy": 0.771,
+      "macro_f1": 0.334,
+      "target_f1": 28.6
+    },
+    "Proposed Defense": {
+      "accuracy": 0.8021,
+      "macro_f1": 0.428,
+      "target_f1": 43.5
+    }
+  }
+}

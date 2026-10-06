@@ -1,0 +1,26 @@
+{
+  "CICIoT2023 (IoT Network Traffic)": {
+    "classes": 8,
+    "clean_fedavg_acc": 0.8062,
+    "poisoned_fedavg_acc": 0.8014,
+    "proposed_defense_acc": 0.8075,
+    "target_f1_poisoned": 19.77,
+    "target_f1_proposed": 50.37
+  },
+  "Edge-IIoTset (Industrial IoT SCADA)": {
+    "classes": 10,
+    "clean_fedavg_acc": 0.884,
+    "poisoned_fedavg_acc": 0.862,
+    "proposed_defense_acc": 0.8895,
+    "target_f1_poisoned": 24.1,
+    "target_f1_proposed": 58.4
+  },
+  "TON_IoT (Heterogeneous Telemetry)": {
+    "classes": 7,
+    "clean_fedavg_acc": 0.852,
+    "poisoned_fedavg_acc": 0.831,
+    "proposed_defense_acc": 0.856,
+    "target_f1_poisoned": 21.5,
+    "target_f1_proposed": 54.2
+  }
+}
