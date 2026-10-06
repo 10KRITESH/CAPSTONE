@@ -35,9 +35,12 @@ env/
 # Large datasets & temporary partitions (can be regenerated)
 data/partitions/
 data/processed/
+data/raw/
 MERGED_CSV/
+MERGED_CSV.zip
 *.csv
 
 # Logs & temp stores
 *.log
 scratch/
+

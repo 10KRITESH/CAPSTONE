@@ -98,9 +98,9 @@ class ClientStateMachine:
         reason = "NO_CHANGE"
 
         # 1. Check demotion / escalation triggers
-        if E >= self.quarantine_threshold:
+        if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= 2):
             new_state = ClientState.QUARANTINED
-            reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}"
+            reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
         elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
             new_state = ClientState.PROBATION
             reason = f"EVIDENCE_ELEVATED_E={E:.2f}"

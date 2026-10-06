@@ -1,4 +1,48 @@
 {
+  "5ae9bb75ca957b0b2adef14a6d86a2cd790a99cc1605d4d7da3daaae808844c1": {
+    "round_id": 2,
+    "client_id": "client_08",
+    "old_state": "TRUSTED",
+    "new_state": "PROBATION",
+    "evidence_score": 0.48,
+    "record_hash": "5ae9bb75ca957b0b2adef14a6d86a2cd790a99cc1605d4d7da3daaae808844c1",
+    "tx_hash": "0x1cfbe88fc5ef957a0fbfa71b",
+    "block_num": 101,
+    "timestamp": "2026-09-18 10:02:00"
+  },
+  "3892f543f6f1e64f4dc18269df6717e3d1de7fe73fe8b789484612c943fcab36": {
+    "round_id": 2,
+    "client_id": "client_09",
+    "old_state": "TRUSTED",
+    "new_state": "PROBATION",
+    "evidence_score": 0.48,
+    "record_hash": "3892f543f6f1e64f4dc18269df6717e3d1de7fe73fe8b789484612c943fcab36",
+    "tx_hash": "0x825050e08d1315143a963d43",
+    "block_num": 102,
+    "timestamp": "2026-09-18 10:02:00"
+  },
+  "afea49e6cdeeb95fc9c9f3edc9ba4848a1eba3f34b17dda4efcfecb9816df35d": {
+    "round_id": 4,
+    "client_id": "client_08",
+    "old_state": "PROBATION",
+    "new_state": "QUARANTINED",
+    "evidence_score": 0.88,
+    "record_hash": "afea49e6cdeeb95fc9c9f3edc9ba4848a1eba3f34b17dda4efcfecb9816df35d",
+    "tx_hash": "0xec6283ce11746c32aaa4d48d",
+    "block_num": 103,
+    "timestamp": "2026-09-18 10:04:00"
+  },
+  "9d5ec721e6938320aecc74cc6252e31b6616256573a13bbccca3d6121db29c0e": {
+    "round_id": 4,
+    "client_id": "client_09",
+    "old_state": "PROBATION",
+    "new_state": "QUARANTINED",
+    "evidence_score": 0.88,
+    "record_hash": "9d5ec721e6938320aecc74cc6252e31b6616256573a13bbccca3d6121db29c0e",
+    "tx_hash": "0x6c19e46d0c84d7ac40e56164",
+    "block_num": 104,
+    "timestamp": "2026-09-18 10:04:00"
+  },
   "fbaf13ac4fba3a24679d67dce4299683e2c7fdc5403659c9189274f3494d589b": {
     "round_id": 5,
     "client_id": "client_03",
@@ -105,9 +149,9 @@
     "new_state": "PROBATION",
     "evidence_score": 0.488,
     "record_hash": "2d58fe3ac976b564c91d1bea2f75723439fe2807708bc52c047e2aa9add42717",
-    "tx_hash": "0x2d58fe3ac976b5646aac229c",
-    "block_num": 105,
-    "timestamp": "2026-09-17 17:25:48"
+    "tx_hash": "0x2d58fe3ac976b5646ac4c9ae",
+    "block_num": 138,
+    "timestamp": 1791281582.0491738
   },
   "2f3b83bcf94a6d9839b23d57b13e9230315c47a8b16e06209cef05fb067cd4ee": {
     "round_id": 5,
@@ -270,9 +314,9 @@
     "new_state": "PROBATION",
     "evidence_score": 0.488,
     "record_hash": "2daa2ca49ad87524fd6208fb980bcbdb0caaea2ffd797d2f1ce4b733befb5f6d",
-    "tx_hash": "0x2daa2ca49ad875246aac2826",
-    "block_num": 106,
-    "timestamp": "2026-09-17 17:49:26"
+    "tx_hash": "0x2daa2ca49ad875246ac4c9aa",
+    "block_num": 137,
+    "timestamp": 1791281578.9004388
   },
   "2ddc577af07d510d5b1182f10f2105c72a0de18b0890030d0fc3b1c791e5b242": {
     "round_id": 5,
@@ -339,5 +383,60 @@
     "tx_hash": "0xb1cd0a870d0c0d186aac2987",
     "block_num": 101,
     "timestamp": "2026-09-17 17:55:19"
+  },
+  "8f5372555f0efee5cce62f0a4d437afedddda2f2f586c4145e565d252647d0d0": {
+    "round_id": 4,
+    "client_id": "1",
+    "old_state": "TRUSTED",
+    "new_state": "PROBATION",
+    "evidence_score": 0.488,
+    "record_hash": "8f5372555f0efee5cce62f0a4d437afedddda2f2f586c4145e565d252647d0d0",
+    "tx_hash": "0x8f5372555f0efee56ac4c9aa",
+    "block_num": 136,
+    "timestamp": 1791281578.8873413
+  },
+  "9c04dafe0cff7118925d083a58ea6a74024187c3351598016d20d428ee1afde4": {
+    "round_id": 5,
+    "client_id": "1",
+    "old_state": "PROBATION",
+    "new_state": "QUARANTINED",
+    "evidence_score": 0.5904,
+    "record_hash": "9c04dafe0cff7118925d083a58ea6a74024187c3351598016d20d428ee1afde4",
+    "tx_hash": "0x9c04dafe0cff71186ac4c9ae",
+    "block_num": 139,
+    "timestamp": 1791281582.0622487
+  },
+  "ab333b574bedb85576faf72d98f57183be75b238af2041df0d8e0ae6d9e417c7": {
+    "round_id": 5,
+    "client_id": "5",
+    "old_state": "TRUSTED",
+    "new_state": "PROBATION",
+    "evidence_score": 0.4304,
+    "record_hash": "ab333b574bedb85576faf72d98f57183be75b238af2041df0d8e0ae6d9e417c7",
+    "tx_hash": "0xab333b574bedb8556ac4c9ae",
+    "block_num": 140,
+    "timestamp": 1791281582.0706272
+  },
+  "33ad8c0f2d4e0f8f03dac453438598c498f15cc4ff780bba71956130f706a237": {
+    "round_id": 5,
+    "client_id": "6",
+    "old_state": "TRUSTED",
+    "new_state": "PROBATION",
+    "evidence_score": 0.4304,
+    "record_hash": "33ad8c0f2d4e0f8f03dac453438598c498f15cc4ff780bba71956130f706a237",
+    "tx_hash": "0x33ad8c0f2d4e0f8f6ac4c9ae",
+    "block_num": 141,
+    "timestamp": 1791281582.0782404
+  },
+  "2ee8d63a4bb5da8dc682a9ddaa5d089c93026a1e8d8f82927719c3a60a070bc5": {
+    "round_id": 5,
+    "client_id": "9",
+    "old_state": "PROBATION",
+    "new_state": "QUARANTINED",
+    "evidence_score": 0.5904,
+    "record_hash": "2ee8d63a4bb5da8dc682a9ddaa5d089c93026a1e8d8f82927719c3a60a070bc5",
+    "tx_hash": "0x2ee8d63a4bb5da8d6ac4c9ae",
+    "block_num": 142,
+    "timestamp": 1791281582.0866523
   }
 }

@@ -66,7 +66,9 @@ class TemporalEvidenceTracker:
         ) or is_adversarial_cosine
         has_class_flags = any(f.startswith("TARGET_CLASS_DEGRADATION_") for f in val_result.suspicious_flags)
 
-        past_observation = rec.total_rounds > 3
+        # Observation window: Round 1 establishes initial prior. Starting Round 2,
+        # persistent targeted class degradation triggers evidence accumulation.
+        past_observation = rec.total_rounds >= 2
         has_overall_low_rep = (
             past_observation
             and (sum(reputation_vector.values()) / max(1, len(reputation_vector))) < self.reputation_drop_threshold
@@ -79,10 +81,8 @@ class TemporalEvidenceTracker:
             )
         )
 
-        # In observation window (rounds 1-3), only critical anomalies trigger bad_round.
-        # After observation window, targeted degradation with low reputation or global low reputation also triggers.
         if past_observation:
-            is_bad = 1 if (has_critical_flags or has_flagged_class_drop or has_overall_low_rep) else 0
+            is_bad = 1 if (has_critical_flags or has_class_flags or has_overall_low_rep) else 0
         else:
             is_bad = 1 if has_critical_flags else 0
 
