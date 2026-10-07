@@ -18,17 +18,21 @@ import argparse
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import torch
+import yaml
 
 from src.attacks.targeted_label_flip import TargetedLabelFlipAttack
 from src.data.dataset import CICIoTDataset
 from src.federation.client import FLClient
 from src.federation.coordinator import FLCoordinator
+from src.model.metrics import compute_attack_success_rate
+from src.utils import save_run_metadata, seed_everything, select_malicious_clients
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,15 +43,26 @@ log = logging.getLogger(__name__)
 
 
 def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
+    t_start = time.time()
     split = "dev" if dev_mode else "full"
     processed_dir = Path("data/processed") / split
     partitions_dir = Path("data/partitions") / split
+
+    # Load default config
+    with open("configs/default.yaml") as f:
+        config = yaml.safe_load(f)
+
+    seeds = config.get("project", {}).get("seeds", {"partition_seed": 42, "train_seed": 42, "attacker_seed": 42})
+    train_seed = seeds.get("train_seed", 42)
+    attacker_seed = seeds.get("attacker_seed", 42)
+    seed_everything(train_seed)
 
     server_val_ds = CICIoTDataset(processed_dir / "server_val.parquet")
     test_ds = CICIoTDataset(processed_dir / "test.parquet")
     partition_files = sorted(partitions_dir.glob("client_*.parquet"))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Device: {device} | Split: {split} | Rounds: {num_rounds} | Seeds: {seeds}")
 
     # 1. Clean Clients (0% Malicious)
     clean_clients = [
@@ -63,8 +78,12 @@ def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
     ]
 
     # 2. Poisoned Clients (20% Malicious: RECON -> BENIGN targeted flip)
-    num_malicious = int(round(len(partition_files) * 0.20))
-    malicious_indices = set(range(num_malicious))
+    num_total = len(partition_files)
+    mal_ratio = config.get("federation", {}).get("malicious_fraction", 0.20)
+    num_malicious = max(1, int(round(num_total * mal_ratio)))
+    malicious_ids = select_malicious_clients(num_total, num_malicious, attacker_seed)
+    malicious_indices = set(malicious_ids)
+    log.info(f"Ablation malicious client IDs: {malicious_ids}")
 
     poisoned_clients = []
     for i, p_file in enumerate(partition_files):
@@ -78,11 +97,6 @@ def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
             device=device,
         )
         poisoned_clients.append(c)
-
-    # Load default config
-    import yaml
-    with open("configs/default.yaml") as f:
-        config = yaml.safe_load(f)
 
     benchmarks = [
         ("FedAvg (Clean - 0% Attack)", "fedavg", clean_clients),
@@ -100,6 +114,7 @@ def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
 
     for label, method, client_list in benchmarks:
         print(f"\n>>> Running Benchmark: '{label}' ({num_rounds} Rounds) ...")
+        t_bench = time.time()
         dir_name = label.split()[0].lower() + ("_clean" if "Clean" in label else "_attack")
         results_dir = Path("results/ablation") / dir_name
         baseline_ckpt = Path(f"results/baseline/{split}/best_model.pt")
@@ -115,12 +130,16 @@ def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
         res = coordinator.run_federated_simulation(
             num_rounds=num_rounds, results_dir=results_dir
         )
+        bench_wall = time.time() - t_bench
         test_m = res["test_metrics"]
         recon_f1 = test_m.get("per_class", {}).get("RECON", {}).get("f1", 0.0)
         ablation_results[label] = {
             "accuracy": test_m["accuracy"],
+            "balanced_accuracy": test_m.get("balanced_accuracy", 0.0),
             "macro_f1": test_m["macro_f1"],
             "recon_f1": recon_f1,
+            "attack_success_rate": test_m.get("attack_success_rate"),
+            "wall_time_s": round(bench_wall, 1),
             "method": method,
         }
 
@@ -137,6 +156,19 @@ def run_ablation_study(num_rounds: int = 5, dev_mode: bool = True):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(ablation_results, f, indent=2)
+
+    # Save provenance metadata
+    save_run_metadata(
+        results_dir=Path("results/ablation"),
+        config=config,
+        seeds=seeds,
+        extra={
+            "num_rounds": num_rounds,
+            "split": split,
+            "total_wall_time_s": round(time.time() - t_start, 1),
+            "malicious_ids": malicious_ids,
+        },
+    )
 
 
 if __name__ == "__main__":

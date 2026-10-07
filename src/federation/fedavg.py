@@ -105,11 +105,19 @@ def main():
     log.info(f"Discovered {num_total_clients} client partitions in {partitions_dir}")
 
     # Determine malicious clients
-    num_malicious = int(round(num_total_clients * args.malicious_ratio))
-    malicious_indices = set(range(num_malicious)) if num_malicious > 0 else set()
+    seeds = config.get("project", {}).get("seeds", {"partition_seed": 42, "train_seed": 42, "attacker_seed": 42})
+    train_seed = seeds.get("train_seed", 42)
+    attacker_seed = seeds.get("attacker_seed", 42)
+    from src.utils import seed_everything, select_malicious_clients
+    seed_everything(train_seed)
 
+    num_malicious = int(round(num_total_clients * args.malicious_ratio))
     if num_malicious > 0:
-        log.info(f"Configuring {num_malicious}/{num_total_clients} clients as MALICIOUS ({args.attack} attack)")
+        malicious_ids = select_malicious_clients(num_total_clients, num_malicious, attacker_seed)
+        malicious_indices = set(malicious_ids)
+        log.info(f"Configuring {num_malicious}/{num_total_clients} clients as MALICIOUS ({args.attack} attack): {malicious_ids}")
+    else:
+        malicious_indices = set()
 
     # 3. Instantiate FL Clients
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

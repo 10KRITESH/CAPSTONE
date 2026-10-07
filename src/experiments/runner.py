@@ -21,12 +21,13 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+import yaml
 from src.audit.blockchain_client import BlockchainClient
 from src.audit.hashing import compute_record_hash
 from src.audit.verification import verify_record_integrity
 from src.database.repository import AuditRepository
-from src.federation.coordinator import FLCoordinator
 from src.federation.fedavg import main as run_fedavg_simulation
+from src.utils import seed_everything
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,10 +42,20 @@ def run_full_project_suite(num_rounds: int = 5, dev_mode: bool = True):
     print("  [START] RUNNING SECURE FEDERATED IDS COMPLETE EXPERIMENT SUITE")
     print("=" * 70)
 
-    # 1. Run Tamper Verification Engine Test
+    with open("configs/default.yaml") as f:
+        config = yaml.safe_load(f)
+
+    train_seed = config.get("project", {}).get("seeds", {}).get("train_seed", 42)
+    seed_everything(train_seed)
+
+    # 1. Run Tamper Verification Engine Test in isolated run directory
     print("\n[STEP 1/3] Running Blockchain Audit & Tamper Verification Test ...")
-    repo = AuditRepository("data/audit.db")
-    bc_client = BlockchainClient()
+    run_id = f"runner_{int(time.time())}"
+    run_dir = Path("results/runs") / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    repo = AuditRepository(run_dir / "audit.db")
+    bc_client = BlockchainClient(ledger_path=run_dir / "blockchain_ledger.json")
 
     sample_record = {
         "round": 1,

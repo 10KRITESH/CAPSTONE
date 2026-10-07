@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     classification_report,
     confusion_matrix,
     f1_score,
@@ -29,6 +30,7 @@ from sklearn.metrics import (
     recall_score,
 )
 from torch.utils.data import DataLoader
+from src.model.metrics import compute_attack_success_rate, compute_balanced_accuracy
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -41,19 +43,22 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
     class_names: Optional[list[str]] = None,
+    asr_pair: Optional[tuple[int, int]] = None,
 ) -> dict:
     """
     Run inference and return a structured metrics dict.
 
     Returns:
         {
-          "accuracy":    float,
-          "macro_f1":    float,
-          "macro_prec":  float,
-          "macro_rec":   float,
-          "per_class":   {class_name: {"precision", "recall", "f1", "support"}},
-          "confusion_matrix": [[...]],  # list-of-lists for JSON serialisation
-          "report":      str,           # sklearn classification_report
+          "accuracy":            float,
+          "balanced_accuracy":   float,
+          "macro_f1":            float,
+          "macro_prec":          float,
+          "macro_rec":           float,
+          "attack_success_rate": Optional[float],
+          "per_class":           {class_name: {"precision", "recall", "f1", "support"}},
+          "confusion_matrix":    [[...]],  # list-of-lists for JSON serialisation
+          "report":              str,      # sklearn classification_report
         }
     """
     model.eval()
@@ -98,11 +103,16 @@ def evaluate(
     cm = confusion_matrix(y_true, y_pred, labels=labels).tolist()
     report = classification_report(y_true, y_pred, target_names=names, zero_division=0)
 
+    bal_acc = float(balanced_accuracy_score(y_true, y_pred))
+    asr = compute_attack_success_rate(y_true, y_pred, asr_pair[0], asr_pair[1]) if asr_pair is not None else None
+
     return {
         "accuracy": acc,
+        "balanced_accuracy": bal_acc,
         "macro_f1": macro_f1,
         "macro_prec": macro_prec,
         "macro_rec": macro_rec,
+        "attack_success_rate": asr,
         "per_class": per_class,
         "confusion_matrix": cm,
         "report": report,

@@ -44,6 +44,7 @@ from src.data.dataset import CICIoTDataset
 from src.federation.client import FLClient
 from src.federation.coordinator import FLCoordinator
 from src.model.evaluate import evaluate
+from src.utils import collect_provenance, save_run_metadata, seed_everything, select_malicious_clients
 from torch.utils.data import DataLoader, TensorDataset
 
 logging.basicConfig(
@@ -103,21 +104,28 @@ def _run_one(
     else:
         test_loader = DataLoader(test_ds, batch_size=2048, shuffle=False)
 
-    tm = evaluate(coordinator.global_model, test_loader, device, class_names)
+    asr_pair = (4, 0) if ("Targeted" in label or "Label-Flip" in label or "Collusion" in label) else None
+    tm = evaluate(coordinator.global_model, test_loader, device, class_names, asr_pair=asr_pair)
 
     result = {
-        "accuracy":  round(float(tm["accuracy"]), 4),
-        "macro_f1":  round(float(tm["macro_f1"]), 4),
-        "target_f1": round(float(tm["per_class"].get("RECON", {}).get("f1", 0.0)), 4),
-        "per_class_f1": {cls: round(float(tm["per_class"][cls]["f1"]), 4) for cls in class_names},
-        "wall_time_s": round(wall_time, 1),
-        "agg_time_ms_last": round(summary["agg_time_ms"], 2),
-        "val_time_ms_last": round(summary.get("val_time_ms", 0.0), 2),
+        "accuracy":           round(float(tm["accuracy"]), 4),
+        "balanced_accuracy":  round(float(tm["balanced_accuracy"]), 4),
+        "macro_f1":           round(float(tm["macro_f1"]), 4),
+        "target_f1":          round(float(tm["per_class"].get("RECON", {}).get("f1", 0.0)), 4),
+        "attack_success_rate": round(float(tm["attack_success_rate"]), 4) if tm["attack_success_rate"] is not None else None,
+        "per_class_f1":       {cls: round(float(tm["per_class"][cls]["f1"]), 4) for cls in class_names},
+        "per_class":          tm["per_class"],
+        "wall_time_s":        round(wall_time, 1),
+        "agg_time_ms_last":   round(summary["agg_time_ms"], 2),
+        "val_time_ms_last":   round(summary.get("val_time_ms", 0.0), 2),
     }
+    asr_str = f" | ASR={result['attack_success_rate']*100:.2f}%" if result["attack_success_rate"] is not None else ""
     log.info(
         f"  ✓ {label}: Acc={result['accuracy']*100:.2f}% | "
+        f"Bal-Acc={result['balanced_accuracy']*100:.2f}% | "
         f"Macro-F1={result['macro_f1']*100:.2f}% | "
         f"RECON-F1={result['target_f1']*100:.2f}%"
+        f"{asr_str}"
     )
     return result
 
@@ -133,8 +141,7 @@ def _build_clean_clients(partition_files, feature_cols, device) -> list[FLClient
     ]
 
 
-def _build_poisoned_clients(partition_files, feature_cols, device, attack_factory_fn, num_malicious) -> list[FLClient]:
-    malicious_set = set(range(num_malicious))
+def _build_poisoned_clients(partition_files, feature_cols, device, attack_factory_fn, malicious_set: set[int]) -> list[FLClient]:
     return [
         FLClient(
             client_id=i, partition_path=pf,
@@ -150,6 +157,7 @@ def _build_poisoned_clients(partition_files, feature_cols, device, attack_factor
 
 def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
     """Run real FL simulations and write results to JSON."""
+    t_start = time.time()
     results_dir = Path("results/ablation")
     results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -160,12 +168,17 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
     with open("configs/default.yaml") as f:
         config = yaml.safe_load(f)
 
+    seeds = config.get("project", {}).get("seeds", {"partition_seed": 42, "train_seed": 42, "attacker_seed": 42})
+    train_seed = seeds.get("train_seed", 42)
+    attacker_seed = seeds.get("attacker_seed", 42)
+    seed_everything(train_seed)
+
     with open(config["paths"]["label_mapping"]) as f:
         lm_cfg = yaml.safe_load(f)
     class_names = [lm_cfg["idx_to_class"][i] for i in range(len(lm_cfg["idx_to_class"]))]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log.info(f"Device: {device} | Split: {split} | Rounds: {num_rounds}")
+    log.info(f"Device: {device} | Split: {split} | Rounds: {num_rounds} | Seeds: {seeds}")
 
     server_val_ds   = CICIoTDataset(processed_dir / "server_val.parquet")
     test_ds         = CICIoTDataset(processed_dir / "test.parquet")
@@ -173,7 +186,10 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
     feature_cols    = server_val_ds.feature_cols
 
     num_clients   = len(partition_files)
-    num_malicious = max(1, int(round(num_clients * 0.20)))  # 20% malicious
+    num_malicious = max(1, int(round(num_clients * config.get("federation", {}).get("malicious_fraction", 0.20))))  # 20% malicious
+    malicious_ids = select_malicious_clients(num_clients, num_malicious, attacker_seed)
+    malicious_set = set(malicious_ids)
+    log.info(f"Active malicious client IDs: {malicious_ids}")
 
     if not baseline_ckpt.exists():
         log.warning(f"Baseline checkpoint not found at {baseline_ckpt} — starting from random weights.")
@@ -203,7 +219,7 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
         (
             "Coordinated Multi-Client Collusion",
             lambda i: CollusionGroupAttack(
-                collusion_group_ids=list(range(num_malicious)),
+                collusion_group_ids=malicious_ids,
                 source_class=4, target_class=0, scale_factor=-1.5,
             ),
         ),
@@ -215,7 +231,7 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
         log.info(f"\n{'='*70}\n  ATTACK: {attack_label}\n{'='*70}")
         multi_attack_results[attack_label] = {}
         poisoned_clients = _build_poisoned_clients(
-            partition_files, feature_cols, device, attack_factory, num_malicious
+            partition_files, feature_cols, device, attack_factory, malicious_set
         )
 
         for defense_label, defense_method in DEFENSES:
@@ -245,16 +261,9 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
     poisoned_clients_ablation = _build_poisoned_clients(
         partition_files, feature_cols, device,
         lambda i: TargetedLabelFlipAttack(source_class=4, target_class=0),
-        num_malicious,
+        malicious_set,
     )
 
-    ablation_configs: list[tuple[str, dict]] = [
-        ("Full Proposed System",           {"disable_head_body_split": False, "disable_state_factor": False}),
-        ("Ablation 1: w/o Head/Body Split","disable_head_body_split True",   {"disable_head_body_split": True,  "disable_state_factor": False}),
-        ("Ablation 2: w/o State Machine",  {"disable_head_body_split": False, "disable_state_factor": True}),
-    ]
-
-    # Fix the above — the list had a stray string. Redo properly:
     ablation_configs = [
         ("Full Proposed System",                         False, False),
         ("Ablation 1: w/o Decoupled Head/Body (Scalar)", True,  False),
@@ -314,6 +323,19 @@ def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
 
     print(f"\n✓ Saved real multi-attack results → results/ablation/multi_attack_benchmark.json")
     print(f"✓ Saved real component ablation  → results/ablation/component_ablation.json\n")
+
+    # Save execution provenance
+    save_run_metadata(
+        results_dir=results_dir,
+        config=config,
+        seeds=seeds,
+        extra={
+            "num_rounds": num_rounds,
+            "split": split,
+            "total_wall_time_s": round(time.time() - t_start, 1),
+            "malicious_ids": malicious_ids,
+        },
+    )
 
 
 if __name__ == "__main__":
