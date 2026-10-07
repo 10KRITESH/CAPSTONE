@@ -191,6 +191,7 @@ class FLCoordinator:
                     atk.set_reference(self._prev_agg_flat)
 
         # 1. Local Client Training
+        train_seed = self.config.get("project", {}).get("seeds", {}).get("train_seed", 42)
         for client in selected_clients:
             update, n_samples, c_metrics = client.train_local(
                 global_model=self.global_model,
@@ -198,6 +199,7 @@ class FLCoordinator:
                 batch_size=self.config.get("training", {}).get("batch_size", 512),
                 lr=lr,
                 round_num=round_num,
+                train_seed=train_seed,
             )
             updates.append(update)
             sample_counts.append(n_samples)

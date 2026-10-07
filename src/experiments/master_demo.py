@@ -39,6 +39,7 @@ from src.federation.client import FLClient
 from src.federation.coordinator import FLCoordinator
 from src.model.evaluate import evaluate, print_metrics
 from src.model.mlp import IDS_MLP, build_model
+from src.utils import collect_provenance, save_run_metadata, seed_everything, select_malicious_clients
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,13 +50,19 @@ log = logging.getLogger(__name__)
 
 
 def run_master_demo():
+    t_start = time.time()
     print("\n" + "█" * 85)
-    print("  🚀 FULL PROJECT MASTER DEMONSTRATION & RIGOROUS VERIFICATION SUITE")
+    print("  🚀 FULL PROJECT SMOKE TEST (5 ROUNDS, SINGLE SEED — NOT BENCHMARK EVIDENCE)")
     print("█" * 85)
 
     # 0. Setup & Config
     with open("configs/default.yaml") as f:
         config = yaml.safe_load(f)
+
+    seeds = config.get("project", {}).get("seeds", {"partition_seed": 42, "train_seed": 42, "attacker_seed": 42})
+    train_seed = seeds.get("train_seed", 42)
+    attacker_seed = seeds.get("attacker_seed", 42)
+    seed_everything(train_seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
@@ -147,9 +154,10 @@ def run_master_demo():
     print("  [STAGE 4/6] ADVERSARIAL ATTACK & DEFENSE SHOOTOUT (20% Targeted RECON Poisoning)")
     print("=" * 85)
 
-    # Setup 20% Poisoned Clients
-    num_malicious = int(round(len(partition_files) * 0.20))
-    mal_indices = set(range(num_malicious))
+    # Setup Poisoned Clients via deterministic attacker_seed
+    num_malicious = int(round(len(partition_files) * config.get("federation", {}).get("malicious_fraction", 0.20)))
+    mal_indices = set(select_malicious_clients(len(partition_files), num_malicious, attacker_seed))
+    print(f"  • Selected malicious clients (seed={attacker_seed}): {sorted(list(mal_indices))}")
 
     poisoned_clients_fedavg = [
         FLClient(
@@ -245,8 +253,13 @@ def run_master_demo():
     print(f"  • Multi-Signal Validation Latency:   {avg_val:.2f} ms")
     print(f"  • Total Security Overhead:           {avg_agg + avg_val:.2f} ms (< 0.45s per round)")
 
+    wall_time = time.time() - t_start
+    prov = collect_provenance(config, seeds, wall_time, extra={"experiment": "smoke_test"})
+    save_run_metadata(Path("results/runs/smoke_test_latest"), prov)
+
     print("\n" + "█" * 85)
-    print("  🏆 COMPLETE END-TO-END DEMO SUITE PASSED ALL 6 STAGES WITH 100% SUCCESS!")
+    print("  🏁 SMOKE TEST COMPLETE (5 rounds, single seed — functional pipeline verified)")
+    print(f"  • Total Wall Clock Time: {wall_time:.1f}s | Provenance saved to results/runs/smoke_test_latest/")
     print("█" * 85 + "\n")
 
 

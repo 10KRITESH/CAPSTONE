@@ -194,17 +194,20 @@ def run_partitioning(
     alpha: float | None = None,
     iid: bool = False,
     dev_mode: bool = True,
+    seed: int | None = None,
 ):
     cfg = load_config(config_path)
-    seed = cfg["project"]["random_seed"]
+    if seed is None:
+        seed = cfg.get("project", {}).get("seeds", {}).get("partition_seed", cfg["project"]["random_seed"])
     fed_cfg = cfg.get("federation", {})
 
-    num_clients = num_clients or fed_cfg.get("num_clients", 20)
+    num_clients = num_clients or fed_cfg.get("num_clients", 10)
     alpha = alpha or fed_cfg.get("dirichlet_alpha", 0.5)
 
     split = "dev" if dev_mode else "full"
     train_parquet = Path(cfg["paths"]["processed_dir"]) / split / "train.parquet"
     out_dir = Path("data/partitions") / split
+    seed_out_dir = out_dir / f"seed_{seed}"
 
     if not train_parquet.exists():
         raise FileNotFoundError(
@@ -217,16 +220,18 @@ def run_partitioning(
     num_classes = cfg["model"]["num_classes"]
 
     if iid:
-        log.info(f"Performing IID partitioning across {num_clients} clients ...")
+        log.info(f"Performing IID partitioning across {num_clients} clients (seed={seed}) ...")
         client_dfs = partition_iid(df_train, num_clients, seed)
         partition_type = "iid"
         alpha_val = None
     else:
-        log.info(f"Performing Non-IID Dirichlet(alpha={alpha}) partitioning across {num_clients} clients ...")
+        log.info(f"Performing Non-IID Dirichlet(alpha={alpha}) partitioning across {num_clients} clients (seed={seed}) ...")
         client_dfs = partition_dirichlet(df_train, num_clients, alpha, seed)
         partition_type = "non_iid"
         alpha_val = alpha
 
+    # Export to seed-specific directory and base split directory for backward compatibility
+    export_partitions(client_dfs, seed_out_dir, partition_type, alpha_val, num_classes=num_classes)
     export_partitions(client_dfs, out_dir, partition_type, alpha_val, num_classes=num_classes)
 
 
@@ -235,6 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", default="configs/default.yaml", help="Path to default.yaml")
     parser.add_argument("--num-clients", type=int, default=None, help="Number of FL clients (e.g. 5, 10, 20, 50)")
     parser.add_argument("--alpha", type=float, default=None, help="Dirichlet alpha for Non-IID skew")
+    parser.add_argument("--seed", type=int, default=None, help="Partition random seed")
     parser.add_argument("--iid", action="store_true", help="Force uniform IID partitioning")
     parser.add_argument("--dev", action="store_true", default=True, help="Use dev split (default)")
     parser.add_argument("--full", action="store_true", help="Use full split")
@@ -247,4 +253,5 @@ if __name__ == "__main__":
         alpha=args.alpha,
         iid=args.iid,
         dev_mode=dev_mode,
+        seed=args.seed,
     )

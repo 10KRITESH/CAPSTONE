@@ -70,6 +70,7 @@ class FLClient:
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
         round_num: int = 1,
+        train_seed: int | None = None,
     ) -> tuple[dict[str, torch.Tensor], int, dict]:
         """
         Perform local training and return parameter update.
@@ -79,6 +80,13 @@ class FLClient:
             num_samples: Total training samples on this client
             metrics: Local training metrics (loss, accuracy)
         """
+        # Deterministic generator if train_seed is supplied
+        generator = None
+        if train_seed is not None:
+            c_int = int(self.client_id) if isinstance(self.client_id, int) or str(self.client_id).isdigit() else 0
+            generator = torch.Generator(device="cpu")
+            generator.manual_seed(train_seed + round_num * 1000 + c_int)
+
         # 1. Apply data-level attack if malicious
         df_train = self.df_raw
         if self.attack is not None:
@@ -105,13 +113,15 @@ class FLClient:
             dataset = TensorDataset(X_tensor, y_tensor)
             loader = DataLoader(
                 dataset, batch_size=batch_size, shuffle=True,
-                num_workers=0, drop_last=(len(dataset) > batch_size)
+                num_workers=0, drop_last=(len(dataset) > batch_size),
+                generator=generator,
             )
         else:
             dataset = TensorDataset(X_tensor, y_tensor)
             loader = DataLoader(
                 dataset, batch_size=batch_size, shuffle=True,
-                drop_last=(len(dataset) > batch_size)
+                drop_last=(len(dataset) > batch_size),
+                generator=generator,
             )
 
 
