@@ -25,21 +25,22 @@ class BlockchainClient:
         rpc_url: RPC endpoint URL for Besu / EVM node (optional).
     """
     _shared_ledger: dict[str, dict] = {}
-    LEDGER_FILE = Path("data/blockchain_ledger.json")
+    DEFAULT_LEDGER_FILE = Path("data/blockchain_ledger.json")
 
-    def __init__(self, rpc_url: Optional[str] = None) -> None:
+    def __init__(self, rpc_url: Optional[str] = None, ledger_path: Optional[str | Path] = None) -> None:
         self.rpc_url = rpc_url
         self.w3 = None
-        self.LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.ledger_file = Path(ledger_path) if ledger_path else self.DEFAULT_LEDGER_FILE
+        self.ledger_file.parent.mkdir(parents=True, exist_ok=True)
 
-        if not self._shared_ledger and self.LEDGER_FILE.exists():
+        self.ledger = {}
+        if self.ledger_file.exists():
             try:
-                with open(self.LEDGER_FILE, "r") as f:
-                    self._shared_ledger.update(json.load(f))
+                with open(self.ledger_file, "r") as f:
+                    self.ledger.update(json.load(f))
             except Exception as e:
                 log.warning(f"Could not load persistent ledger: {e}")
 
-        self.ledger = self._shared_ledger
         self.current_block = 100 + len(self.ledger)
 
         if rpc_url:
@@ -86,7 +87,7 @@ class BlockchainClient:
         self.ledger[record_hash] = entry
 
         try:
-            with open(self.LEDGER_FILE, "w") as f:
+            with open(self.ledger_file, "w") as f:
                 json.dump(self.ledger, f, indent=2)
         except Exception as e:
             log.warning(f"Could not persist ledger to disk: {e}")
@@ -95,10 +96,10 @@ class BlockchainClient:
 
     def get_decision(self, record_hash: str) -> dict | None:
         """Fetch on-chain decision record by hash."""
-        if record_hash not in self.ledger and self.LEDGER_FILE.exists():
+        if record_hash not in self.ledger and self.ledger_file.exists():
             try:
-                with open(self.LEDGER_FILE, "r") as f:
-                    self._shared_ledger.update(json.load(f))
+                with open(self.ledger_file, "r") as f:
+                    self.ledger.update(json.load(f))
             except Exception:
                 pass
         return self.ledger.get(record_hash)

@@ -4,9 +4,10 @@
 # ==============================================================================
 # Usage:
 #   ./run.sh              # Interactive menu / default full demonstration
-#   ./run.sh --demo       # Run 6-Stage Master Demonstration suite
+#   ./run.sh --demo       # Run 6-Stage SMOKE TEST (single seed, 5 rounds)
+#   ./run.sh --reset-state # Clean reset of demo audit.db and blockchain_ledger.json
 #   ./run.sh --dashboard  # Launch Streamlit Web Dashboard
-#   ./run.sh --all        # Run Master Demo + Generate Plots + Launch Dashboard
+#   ./run.sh --all        # Run Smoke Test + Generate Plots + Launch Dashboard
 #   ./run.sh --ablation   # Run 8-Way Defense Shootout Benchmark
 #   ./run.sh --verify     # Run Cryptographic Blockchain Tamper Verification
 # ==============================================================================
@@ -76,8 +77,14 @@ echo ""
 
 # Functions for modes
 run_master_demo() {
-    echo -e "${GREEN}${BOLD}🚀 Executing 6-Stage Master Demonstration Suite...${NC}\n"
+    echo -e "${GREEN}${BOLD}🚀 Executing 6-Stage Smoke Test Suite (5 rounds, single seed)...${NC}\n"
     $PYTHON_BIN src/experiments/master_demo.py
+}
+
+reset_demo_state() {
+    echo -e "${YELLOW}${BOLD}🧹 Resetting demo audit database and blockchain ledger...${NC}"
+    rm -f data/audit.db data/blockchain_ledger.json data/test_audit.db
+    echo -e "${GREEN}✓ Clean demo state initialized.${NC}\n"
 }
 
 run_dashboard() {
@@ -119,6 +126,10 @@ run_all() {
 MODE="${1:-}"
 
 case "$MODE" in
+    --reset-state|reset-state|reset)
+        reset_demo_state
+        exit 0
+        ;;
     --sim|sim)
         run_sim "$@"
         exit 0

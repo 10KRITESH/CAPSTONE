@@ -38,19 +38,27 @@ class PerClassReputationManager:
         self,
         class_names: list[str],
         eta: float = 0.20,
+        accelerated_eta: float = 0.50,
+        acceleration_impact_threshold: float = -0.015,
         wp: float = 0.60,
         ws: float = 0.25,
         wn: float = 0.15,
         low_support_classes: Optional[set[str]] = None,
         low_support_dampening: float = 0.30,
+        config: Optional[dict] = None,
     ) -> None:
+        cfg = config or {}
+        rep_cfg = cfg.get("trust", {}).get("reputation", {})
+
         self.class_names = class_names
-        self.eta = eta
-        self.wp = wp
-        self.ws = ws
-        self.wn = wn
+        self.eta = rep_cfg.get("eta", eta)
+        self.accelerated_eta = rep_cfg.get("accelerated_eta", accelerated_eta)
+        self.acceleration_impact_threshold = rep_cfg.get("acceleration_impact_threshold", acceleration_impact_threshold)
+        self.wp = rep_cfg.get("wp", wp)
+        self.ws = rep_cfg.get("ws", ws)
+        self.wn = rep_cfg.get("wn", wn)
         self.low_support_classes = low_support_classes or set()
-        self.low_support_dampening = low_support_dampening
+        self.low_support_dampening = rep_cfg.get("low_support_dampening", low_support_dampening)
 
         # Reputation table: client_id -> {class_name: score_in_[0, 1]}
         self.reputation_table: dict[str | int, dict[str, float]] = {}
@@ -98,7 +106,7 @@ class PerClassReputationManager:
 
             # EWMA update: R_t(i, c) = (1 - eta) * R_{t-1} + eta * Q_t
             r_prev = current_rep[cls]
-            effective_eta = 0.50 if imp < -0.015 else self.eta
+            effective_eta = self.accelerated_eta if imp < self.acceleration_impact_threshold else self.eta
             r_new = (1.0 - effective_eta) * r_prev + effective_eta * q_score
             updated_rep[cls] = round(max(0.0, min(1.0, r_new)), 4)
 

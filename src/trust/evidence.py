@@ -39,9 +39,19 @@ class TemporalEvidenceTracker:
         reputation_drop_threshold: Reputation score below which a class triggers bad_round (default: 0.40).
     """
 
-    def __init__(self, rho: float = 0.80, reputation_drop_threshold: float = 0.40) -> None:
-        self.rho = rho
-        self.reputation_drop_threshold = reputation_drop_threshold
+    def __init__(
+        self,
+        rho: float = 0.80,
+        reputation_drop_threshold: float = 0.40,
+        adversarial_cosine_threshold: float = -0.60,
+        config: Optional[dict] = None,
+    ) -> None:
+        cfg = config or {}
+        ev_cfg = cfg.get("trust", {}).get("evidence", {})
+
+        self.rho = ev_cfg.get("rho", rho)
+        self.reputation_drop_threshold = ev_cfg.get("reputation_drop_threshold", reputation_drop_threshold)
+        self.adversarial_cosine_threshold = ev_cfg.get("adversarial_cosine_threshold", adversarial_cosine_threshold)
         self.records: dict[str | int, EvidenceRecord] = {}
 
     def get_record(self, client_id: str | int) -> EvidenceRecord:
@@ -59,7 +69,7 @@ class TemporalEvidenceTracker:
         rec.total_rounds += 1
 
         # Critical anomaly flags (indicative of active poisoning / scaling / sign-inversion / collusion attacks)
-        is_adversarial_cosine = (val_result.cosine_sim < -0.60) and (val_result.global_f1_impact < -0.03)
+        is_adversarial_cosine = (val_result.cosine_sim < self.adversarial_cosine_threshold) and (val_result.global_f1_impact < -0.03)
         has_critical_flags = any(
             f in val_result.suspicious_flags
             for f in ["ABNORMAL_UPDATE_NORM", "GLOBAL_PERFORMANCE_DEGRADATION", "COORDINATED_COLLUSION_DETECTED"]

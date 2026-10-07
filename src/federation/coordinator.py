@@ -70,6 +70,8 @@ class FLCoordinator:
         init_weights_path: str | Path | None = None,
         disable_head_body_split: bool = False,
         disable_state_factor: bool = False,
+        db_path: str | Path | None = None,
+        ledger_path: str | Path | None = None,
     ) -> None:
         self.config = config
         self.clients = clients
@@ -107,15 +109,15 @@ class FLCoordinator:
             lm_cfg = yaml.safe_load(f)
         self.class_names = [lm_cfg["idx_to_class"][i] for i in range(len(lm_cfg["idx_to_class"]))]
 
-        # Instantiate Trust & Audit Engine components if method is trust_class_aware
-        self.validator = UpdateValidator(self.server_val_loader, self.class_names, self.device)
-        self.rep_manager = PerClassReputationManager(self.class_names)
+        # Instantiate Trust & Audit Engine components using unified config
+        self.validator = UpdateValidator(self.server_val_loader, self.class_names, self.device, config=self.config)
+        self.rep_manager = PerClassReputationManager(self.class_names, config=self.config)
         self.cold_start = ColdStartManager()
-        self.evidence_tracker = TemporalEvidenceTracker()
-        self.state_machine = ClientStateMachine()
+        self.evidence_tracker = TemporalEvidenceTracker(config=self.config)
+        self.state_machine = ClientStateMachine(config=self.config)
 
-        self.db_repo = AuditRepository("data/audit.db")
-        self.bc_client = BlockchainClient()
+        self.db_repo = AuditRepository(db_path or "data/audit.db")
+        self.bc_client = BlockchainClient(ledger_path=ledger_path)
 
         # Track the previous round's aggregate update direction for AdaptiveCosineMimicAttack
         # (the attacker observes past model deltas to calibrate their mimicry direction)
@@ -268,6 +270,7 @@ class FLCoordinator:
                 self.rep_manager.reputation_table, state_factors, self.class_names,
                 disable_head_body_split=self.disable_head_body_split,
                 disable_state_factor=self.disable_state_factor,
+                trust_config=self.config,
             )
             self.global_model.load_state_dict(global_dict)
 

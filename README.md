@@ -61,14 +61,14 @@ An enterprise-grade, privacy-preserving **Federated Learning Network Intrusion D
    - **Signal C (Semantic Step Impact)**: Candidate probing scaled by federated step proportion ($\frac{1}{N}$) on server validation data.
 
 2. **Decoupled Head/Body Trust Defense**:
-   - **Shared Body Representation Protection**: Penalizes shared feature representations when any per-class reputation drops severely:
-     $$\text{Weight}_{\text{body}}(i) = n_i \cdot \text{BaseTrust}(i) \cdot \min_c(R(i, c))^2 \cdot \text{StateFactor}(i)$$
-   - **Class-Aware Head Aggregation**: Quadratic scaling with a sharp cutoff at $0.50$ reputation:
-     $$\text{Weight}_{\text{head}}(i, c) = n_i \cdot R(i, c)^2 \cdot \text{StateFactor}(i) \quad (\text{if } R(i, c) \ge 0.50 \text{ else } 0)$$
+   - **Shared Body Representation Protection**: Penalizes shared feature representations when any per-class reputation drops below $0.70$:
+     $$\text{Weight}_{\text{body}}(i) = \sqrt{n_i} \cdot \text{BaseTrust}(i) \cdot (\min_c R(i, c))^3 \cdot \text{StateFactor}(i) \quad (\text{if } \min_c R(i, c) < 0.70 \text{ else } \sqrt{n_i} \cdot \text{BaseTrust}(i) \cdot \text{StateFactor}(i))$$
+   - **Class-Aware Head Aggregation**: Cubic scaling with a strict lockout cutoff at $0.65$ reputation:
+     $$\text{Weight}_{\text{head}}(i, c) = \sqrt{n_i} \cdot R(i, c)^3 \cdot \text{StateFactor}(i) \quad (\text{if } R(i, c) \ge 0.65 \text{ else } 0)$$
 
 3. **Three-Tier Participant State Machine**:
-   - $\text{TRUSTED} \xrightarrow{E \ge 0.45} \text{PROBATION} \xrightarrow{E \ge 0.70} \text{QUARANTINED}$
-   - Automated recovery to $\text{TRUSTED}$ after 3 consecutive clean rounds ($E \le 0.20$).
+   - $\text{TRUSTED} \xrightarrow{E \ge 0.40} \text{PROBATION} \xrightarrow{E \ge 0.70 \text{ or (in PROBATION with } bad \ge 2)} \text{QUARANTINED}$
+   - Recovery via shadow validation: QUARANTINED $\to$ PROBATION requires $K_1 = 3$ consecutive clean rounds ($E < 0.70$); PROBATION $\to$ TRUSTED requires $K_2 = 3$ clean rounds ($E < 0.40$).
 
 4. **Cryptographic Blockchain Governance**:
    - Every state transition is hashed using canonical SHA-256 and committed with block number, timestamp, and transaction hash to an immutable ledger (`data/blockchain_ledger.json` & `data/audit.db`).
@@ -222,10 +222,12 @@ python src/data/preprocess.py --dev
 python src/data/partition.py --dev
 ```
 
-### 3. Run the Full 6-Stage Master Demonstration
-Execute the comprehensive end-to-end validation suite:
+### 3. Run the Smoke Test (5 Rounds, Single Seed)
+Execute the end-to-end smoke test suite (quick functional verification, not benchmark evidence):
 ```bash
 python src/experiments/master_demo.py
+# or via runner script:
+./run.sh --demo
 ```
 
 ### 4. Run the 8-Way Defense & Ablation Benchmark

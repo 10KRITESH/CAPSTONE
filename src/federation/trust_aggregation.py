@@ -29,6 +29,7 @@ def aggregate_trust_class_aware(
     class_names: list[str],
     disable_head_body_split: bool = False,
     disable_state_factor: bool = False,
+    trust_config: Optional[dict] = None,
 ) -> tuple[dict[str, torch.Tensor], float]:
     """
     Class-Aware & Trust-Weighted Aggregation with optional component ablation toggles.
@@ -40,6 +41,14 @@ def aggregate_trust_class_aware(
     global_dict = global_model.state_dict()
     num_classes = len(class_names)
 
+    agg_cfg = (trust_config or {}).get("trust", {}).get("aggregation", {})
+    body_weight_power = agg_cfg.get("body_weight_power", 0.5)
+    body_penalty_exponent = agg_cfg.get("body_penalty_exponent", 3.0)
+    body_penalty_threshold = agg_cfg.get("body_penalty_threshold", 0.70)
+    head_weight_power = agg_cfg.get("head_weight_power", 0.5)
+    head_penalty_exponent = agg_cfg.get("head_penalty_exponent", 3.0)
+    head_lockout_threshold = agg_cfg.get("head_lockout_threshold", 0.65)
+
     # 1. Calculate Body weights per client
     body_weights = []
     for c_id, n_i in zip(client_ids, sample_counts):
@@ -47,10 +56,10 @@ def aggregate_trust_class_aware(
         rep_dict = reputation_table.get(c_id, {cls: 1.0 for cls in class_names})
         base_trust = sum(rep_dict.values()) / max(1, len(rep_dict))
         min_rep = min(rep_dict.values()) if rep_dict else 1.0
-        # If any class shows severe degradation (< 0.70), suppress shared body representation influence
-        body_trust = base_trust * (min_rep ** 3) if min_rep < 0.70 else base_trust
-        # Sqrt sample scaling prevents massive majority clients from overpowering minority class representations
-        w = (n_i ** 0.5) * body_trust * sf
+        # If any class shows severe degradation, suppress shared body representation influence
+        body_trust = base_trust * (min_rep ** body_penalty_exponent) if min_rep < body_penalty_threshold else base_trust
+        # Sample scaling prevents massive majority clients from overpowering minority class representations
+        w = (n_i ** body_weight_power) * body_trust * sf
         body_weights.append(w)
 
     sum_body_w = sum(body_weights)
@@ -72,9 +81,9 @@ def aggregate_trust_class_aware(
             for c_id, n_i in zip(client_ids, sample_counts):
                 sf = 1.0 if disable_state_factor else state_factors.get(c_id, 1.0)
                 r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
-                # Cubic scaling with cutoff at 0.65 to strictly lock out poisoned classes
-                r_effective = (r_ic ** 3) if r_ic >= 0.65 else 0.0
-                w = (n_i ** 0.5) * r_effective * sf
+                # Configurable scaling with cutoff lockout for poisoned classes
+                r_effective = (r_ic ** head_penalty_exponent) if r_ic >= head_lockout_threshold else 0.0
+                w = (n_i ** head_weight_power) * r_effective * sf
                 c_weights.append(w)
 
             sum_w = sum(c_weights)

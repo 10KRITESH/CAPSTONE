@@ -56,11 +56,31 @@ class UpdateValidator:
         server_val_loader: DataLoader,
         class_names: list[str],
         device: torch.device,
+        config: Optional[dict] = None,
     ) -> None:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
         self.device = device
-        self.collusion_detector = SubClusterCollusionDetector()
+        
+        cfg = config or {}
+        trust_cfg = cfg.get("trust", {})
+        ev_cfg = trust_cfg.get("evidence", {})
+        col_cfg = trust_cfg.get("collusion", {})
+
+        self.cosine_threshold = ev_cfg.get("cosine_threshold", -0.50)
+        self.norm_z_extreme = ev_cfg.get("norm_z_extreme_threshold", 15.0)
+        self.norm_z_anomaly = ev_cfg.get("norm_z_anomaly_threshold", 4.0)
+        self.global_degradation_thresh = ev_cfg.get("global_degradation_threshold", -0.05)
+        self.target_class_degradation_thresh = ev_cfg.get("target_class_degradation_threshold", -0.025)
+        self.target_class_min_base_f1 = ev_cfg.get("target_class_min_base_f1", 0.15)
+        self.collusion_flag_thresh = col_cfg.get("collusion_penalty_flag_threshold", 0.40)
+
+        self.collusion_detector = SubClusterCollusionDetector(
+            similarity_threshold=col_cfg.get("similarity_threshold", 0.88),
+            min_group_size=col_cfg.get("min_group_size", 2),
+            divergence_threshold=col_cfg.get("divergence_threshold", 0.65),
+            decay_factor=col_cfg.get("decay_factor", 0.85),
+        )
 
     def validate_updates(
         self,
@@ -121,16 +141,16 @@ class UpdateValidator:
 
             # Flag suspicious indicators
             flags = []
-            if cos_sim < -0.50:
+            if cos_sim < self.cosine_threshold:
                 flags.append("LOW_COSINE_SIMILARITY")
-            if (abs(z_score) > 15.0) or (abs(z_score) > 4.0 and (cos_sim < 0.0 or global_impact < -0.03)):
+            if (abs(z_score) > self.norm_z_extreme) or (abs(z_score) > self.norm_z_anomaly and (cos_sim < 0.0 or global_impact < -0.03)):
                 flags.append("ABNORMAL_UPDATE_NORM")
-            if global_impact < -0.05:
+            if global_impact < self.global_degradation_thresh:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
-            if c_penalty > 0.40:
+            if c_penalty > self.collusion_flag_thresh:
                 flags.append("COORDINATED_COLLUSION_DETECTED")
             for cls, imp in per_class_impact.items():
-                if base_class_f1.get(cls, 0.0) >= 0.15 and imp < -0.025:
+                if base_class_f1.get(cls, 0.0) >= self.target_class_min_base_f1 and imp < self.target_class_degradation_thresh:
                     flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

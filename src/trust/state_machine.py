@@ -47,13 +47,23 @@ class ClientStateMachine:
         self,
         probation_threshold: float = 0.40,
         quarantine_threshold: float = 0.70,
+        probation_consecutive_bad_threshold: int = 2,
         k1_recovery_rounds: int = 3,
         k2_recovery_rounds: int = 3,
+        state_factors: Optional[dict[str, float]] = None,
+        config: Optional[dict] = None,
     ) -> None:
-        self.probation_threshold = probation_threshold
-        self.quarantine_threshold = quarantine_threshold
-        self.k1_recovery_rounds = k1_recovery_rounds
-        self.k2_recovery_rounds = k2_recovery_rounds
+        cfg = config or {}
+        sm_cfg = cfg.get("trust", {}).get("state_machine", {})
+
+        self.probation_threshold = sm_cfg.get("probation_threshold", probation_threshold)
+        self.quarantine_threshold = sm_cfg.get("quarantine_threshold", quarantine_threshold)
+        self.probation_consecutive_bad_threshold = sm_cfg.get("probation_consecutive_bad_threshold", probation_consecutive_bad_threshold)
+        self.k1_recovery_rounds = sm_cfg.get("k1_recovery_rounds", k1_recovery_rounds)
+        self.k2_recovery_rounds = sm_cfg.get("k2_recovery_rounds", k2_recovery_rounds)
+        
+        default_sf = state_factors or {"trusted": 1.0, "probation_floor": 0.20, "quarantined": 0.0}
+        self.state_factors_cfg = sm_cfg.get("state_factors", default_sf)
 
         self.client_states: dict[str | int, ClientState] = {}
         self.transition_history: list[dict] = []
@@ -65,17 +75,18 @@ class ClientStateMachine:
         """
         Return participation weight multiplier [0.0, 1.0].
         - TRUSTED: 1.0
-        - PROBATION: gradual state factor = max(0.20, 1.0 - evidence_score)
+        - PROBATION: gradual state factor = max(probation_floor, 1.0 - evidence_score)
         - QUARANTINED: 0.0 (excluded from aggregation)
         """
         state = self.get_state(client_id)
         if state == ClientState.TRUSTED:
-            return 1.0
+            return float(self.state_factors_cfg.get("trusted", 1.0))
         elif state == ClientState.QUARANTINED:
-            return 0.0
+            return float(self.state_factors_cfg.get("quarantined", 0.0))
         else:
             # PROBATION: gradual state factor proportional to evidence
-            return max(0.20, round(1.0 - evidence_score, 4))
+            floor_val = float(self.state_factors_cfg.get("probation_floor", 0.20))
+            return max(floor_val, round(1.0 - evidence_score, 4))
 
     def update_state(
         self,
@@ -98,7 +109,7 @@ class ClientStateMachine:
         reason = "NO_CHANGE"
 
         # 1. Check demotion / escalation triggers
-        if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= 2):
+        if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= self.probation_consecutive_bad_threshold):
             new_state = ClientState.QUARANTINED
             reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
         elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
