@@ -1,21 +1,22 @@
 """
-run_comprehensive_benchmark.py — Multi-Attack & Component Ablation Benchmark Runner.
+run_comprehensive_benchmark.py — Real Multi-Attack & Component Ablation Benchmark Runner.
+
+IMPORTANT: This file runs ACTUAL PyTorch federated learning simulations.
+All numbers come from live training, NOT hardcoded dicts.
 
 Executes:
-  1. Multi-Attack Evaluation Suite across:
-     - Targeted Label-Flipping (RECON -> BENIGN)
+  1. Multi-Attack Evaluation Suite across 4 attack types × 5 defenses:
+     - Targeted Label-Flipping (RECON → BENIGN)
      - Adaptive Norm-Clipping Attack
      - Adaptive Cosine-Mimicking Attack
      - Coordinated Collusion Group Attack
-  2. Component-Wise Architectural Ablation Study:
-     - Full Proposed Defense
-     - Proposed w/o Decoupled Head/Body Aggregation (Scalar Trust)
-     - Proposed w/o 3-Tier State Machine (Static Multiplier)
-     - Proposed w/o Geometric Median Reference (Simple Arithmetic Mean)
-     - Proposed w/o Semantic Validation Probing (Geometric signals only)
-     - Proposed w/o Sub-Cluster Collusion Detection
 
-Outputs:
+  2. Component-Wise Architectural Ablation Study:
+     - Full Proposed Defense (all components enabled)
+     - Proposed w/o Decoupled Head/Body Aggregation (disable_head_body_split=True)
+     - Proposed w/o 3-Tier State Machine (disable_state_factor=True)
+
+Outputs (real results, not hardcoded):
   - results/ablation/multi_attack_benchmark.json
   - results/ablation/component_ablation.json
 """
@@ -25,13 +26,13 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 from pathlib import Path
+from typing import Optional
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import numpy as np
-import pandas as pd
 import torch
 import yaml
 
@@ -42,6 +43,8 @@ from src.attacks.targeted_label_flip import TargetedLabelFlipAttack
 from src.data.dataset import CICIoTDataset
 from src.federation.client import FLClient
 from src.federation.coordinator import FLCoordinator
+from src.model.evaluate import evaluate
+from torch.utils.data import DataLoader, TensorDataset
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,102 +54,272 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def generate_benchmark_data():
-    """Generate structured multi-attack and component ablation benchmark outputs."""
+# ── Shared simulation helper ──────────────────────────────────────────────────
+
+def _run_one(
+    label: str,
+    config: dict,
+    clients: list[FLClient],
+    server_val_ds: CICIoTDataset,
+    test_ds: CICIoTDataset,
+    device: torch.device,
+    agg_method: str,
+    num_rounds: int,
+    baseline_ckpt: Optional[Path],
+    class_names: list[str],
+    disable_head_body_split: bool = False,
+    disable_state_factor: bool = False,
+) -> dict:
+    """Run one FL simulation and return summary metrics."""
+    log.info(f"\n{'─'*70}\n  [{label}]  method={agg_method}  rounds={num_rounds}\n{'─'*70}")
+
+    coordinator = FLCoordinator(
+        config=config,
+        clients=clients,
+        server_val_ds=server_val_ds,
+        test_ds=test_ds,
+        aggregation_method=agg_method,
+        device=device,
+        init_weights_path=baseline_ckpt if baseline_ckpt and baseline_ckpt.exists() else None,
+        disable_head_body_split=disable_head_body_split,
+        disable_state_factor=disable_state_factor,
+    )
+
+    t_start = time.time()
+    for r in range(1, num_rounds + 1):
+        summary = coordinator.run_round(round_num=r)
+        log.info(
+            f"  Round {r:>2}/{num_rounds} | "
+            f"Val Acc={summary['val_accuracy']*100:.2f}% | "
+            f"Val F1={summary['val_macro_f1']*100:.2f}% | "
+            f"Agg={summary['agg_time_ms']:.1f}ms"
+        )
+    wall_time = time.time() - t_start
+
+    # Test-set evaluation
+    if device.type == "cuda":
+        test_tensor_ds = TensorDataset(test_ds.X.to(device), test_ds.y.to(device))
+        test_loader = DataLoader(test_tensor_ds, batch_size=2048, shuffle=False, num_workers=0)
+    else:
+        test_loader = DataLoader(test_ds, batch_size=2048, shuffle=False)
+
+    tm = evaluate(coordinator.global_model, test_loader, device, class_names)
+
+    result = {
+        "accuracy":  round(float(tm["accuracy"]), 4),
+        "macro_f1":  round(float(tm["macro_f1"]), 4),
+        "target_f1": round(float(tm["per_class"].get("RECON", {}).get("f1", 0.0)), 4),
+        "per_class_f1": {cls: round(float(tm["per_class"][cls]["f1"]), 4) for cls in class_names},
+        "wall_time_s": round(wall_time, 1),
+        "agg_time_ms_last": round(summary["agg_time_ms"], 2),
+        "val_time_ms_last": round(summary.get("val_time_ms", 0.0), 2),
+    }
+    log.info(
+        f"  ✓ {label}: Acc={result['accuracy']*100:.2f}% | "
+        f"Macro-F1={result['macro_f1']*100:.2f}% | "
+        f"RECON-F1={result['target_f1']*100:.2f}%"
+    )
+    return result
+
+
+def _build_clean_clients(partition_files, feature_cols, device) -> list[FLClient]:
+    return [
+        FLClient(
+            client_id=i, partition_path=pf,
+            feature_cols=feature_cols, num_classes=8,
+            attack=None, device=device,
+        )
+        for i, pf in enumerate(partition_files)
+    ]
+
+
+def _build_poisoned_clients(partition_files, feature_cols, device, attack_factory_fn, num_malicious) -> list[FLClient]:
+    malicious_set = set(range(num_malicious))
+    return [
+        FLClient(
+            client_id=i, partition_path=pf,
+            feature_cols=feature_cols, num_classes=8,
+            attack=attack_factory_fn(i) if i in malicious_set else None,
+            device=device,
+        )
+        for i, pf in enumerate(partition_files)
+    ]
+
+
+# ── Main benchmark runner ─────────────────────────────────────────────────────
+
+def generate_benchmark_data(num_rounds: int = 10, split: str = "dev") -> None:
+    """Run real FL simulations and write results to JSON."""
     results_dir = Path("results/ablation")
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Multi-Attack Defense Comparison Matrix
-    multi_attack_results = {
-        "Targeted Label-Flip (RECON -> BENIGN)": {
-            "FedAvg (Poisoned)": {"accuracy": 0.8014, "macro_f1": 0.3857, "target_f1": 0.1977, "defense_status": "Vulnerable (-23.64 pts F1)"},
-            "Multi-Krum": {"accuracy": 0.8063, "macro_f1": 0.4471, "target_f1": 0.5065, "defense_status": "Robust Byzantine Filter"},
-            "Trimmed Mean": {"accuracy": 0.8062, "macro_f1": 0.4390, "target_f1": 0.4413, "defense_status": "Robust Coordinate Averaging"},
-            "Coordinate Median": {"accuracy": 0.8028, "macro_f1": 0.4179, "target_f1": 0.4943, "defense_status": "Robust Coordinate Median"},
-            "Proposed Defense": {"accuracy": 0.8075, "macro_f1": 0.4612, "target_f1": 0.5037, "defense_status": "Highest Accuracy & Macro-F1 (Audited)"},
-        },
-        "Adaptive Norm-Clipping Attack": {
-            "FedAvg (Poisoned)": {"accuracy": 0.7985, "macro_f1": 0.3712, "target_f1": 0.2240, "defense_status": "Vulnerable to Stealth Scaling"},
-            "Multi-Krum": {"accuracy": 0.8011, "macro_f1": 0.4120, "target_f1": 0.4215, "defense_status": "Partial (Distance evasion)"},
-            "Trimmed Mean": {"accuracy": 0.8034, "macro_f1": 0.4285, "target_f1": 0.4530, "defense_status": "Moderate Coordinate Defense"},
-            "Coordinate Median": {"accuracy": 0.8020, "macro_f1": 0.4095, "target_f1": 0.4610, "defense_status": "Robust Median"},
-            "Proposed Defense": {"accuracy": 0.8068, "macro_f1": 0.4588, "target_f1": 0.5120, "defense_status": "Fully Resilient (Bounded MAD + Probe)"},
-        },
-        "Adaptive Cosine-Mimicry Attack": {
-            "FedAvg (Poisoned)": {"accuracy": 0.7990, "macro_f1": 0.3695, "target_f1": 0.2085, "defense_status": "Vulnerable to Direction Blending"},
-            "Multi-Krum": {"accuracy": 0.7980, "macro_f1": 0.3980, "target_f1": 0.3840, "defense_status": "Bypassed by Blend Direction"},
-            "Trimmed Mean": {"accuracy": 0.8025, "macro_f1": 0.4210, "target_f1": 0.4350, "defense_status": "Partial Trim Defense"},
-            "Coordinate Median": {"accuracy": 0.8015, "macro_f1": 0.4050, "target_f1": 0.4480, "defense_status": "Robust Median"},
-            "Proposed Defense": {"accuracy": 0.8071, "macro_f1": 0.4595, "target_f1": 0.5085, "defense_status": "Fully Resilient (Probing Catch)"},
-        },
-        "Coordinated Multi-Client Collusion": {
-            "FedAvg (Poisoned)": {"accuracy": 0.7850, "macro_f1": 0.3420, "target_f1": 0.1450, "defense_status": "Severely Collapsed by Group Drift"},
-            "Multi-Krum": {"accuracy": 0.7920, "macro_f1": 0.3850, "target_f1": 0.3520, "defense_status": "Bypassed (Colluding cluster mimics center)"},
-            "Trimmed Mean": {"accuracy": 0.7980, "macro_f1": 0.4010, "target_f1": 0.3980, "defense_status": "Degraded by Multiple Colluders"},
-            "Coordinate Median": {"accuracy": 0.7995, "macro_f1": 0.3960, "target_f1": 0.4120, "defense_status": "Partial Robustness"},
-            "Proposed Defense": {"accuracy": 0.8062, "macro_f1": 0.4570, "target_f1": 0.4995, "defense_status": "Collusion Group Flagged & Suppressed"},
-        },
-    }
+    processed_dir  = Path("data/processed")  / split
+    partitions_dir = Path("data/partitions") / split
+    baseline_ckpt  = Path(f"results/baseline/{split}/best_model.pt")
 
-    # 2. Architectural Component Ablation Matrix (Isolating Each Innovation)
-    component_ablation_results = {
-        "Full Proposed System": {
-            "accuracy": 0.8075,
-            "macro_f1": 0.4612,
-            "target_f1": 0.5037,
-            "overhead_ms": 350.38,
-            "description": "Complete Defense (Geometric Median + Multi-Signal + Per-Class + Head/Body + State Machine + Collusion)",
-        },
-        "Ablation 1: w/o Decoupled Head/Body (Uniform Scalar Trust)": {
-            "accuracy": 0.8038,
-            "macro_f1": 0.4280,
-            "target_f1": 0.4350,
-            "overhead_ms": 348.12,
-            "description": "Uses single scalar trust across all layers; loses fine-grained per-class head protection (-6.87 pts target F1)",
-        },
-        "Ablation 2: w/o 3-Tier State Machine (Static Thresholding)": {
-            "accuracy": 0.8045,
-            "macro_f1": 0.4390,
-            "target_f1": 0.4620,
-            "overhead_ms": 346.50,
-            "description": "Replaces 3-tier state machine (Trusted/Probation/Quarantine) with fixed pass/fail; loses gradual recovery (-4.17 pts target F1)",
-        },
-        "Ablation 3: w/o Geometric Median Reference (Arithmetic Mean)": {
-            "accuracy": 0.8018,
-            "macro_f1": 0.4150,
-            "target_f1": 0.4210,
-            "overhead_ms": 312.40,
-            "description": "Scores updates against arithmetic mean; vulnerable to reference dragging by large outliers (-8.27 pts target F1)",
-        },
-        "Ablation 4: w/o Semantic Validation Probing (Signals A & B only)": {
-            "accuracy": 0.8029,
-            "macro_f1": 0.4215,
-            "target_f1": 0.3980,
-            "overhead_ms": 13.59,
-            "description": "Relies only on cosine & MAD norm; fails to catch geometrically stealthy label-flipping (-10.57 pts target F1)",
-        },
-        "Ablation 5: w/o Sub-Cluster Collusion Detection": {
-            "accuracy": 0.8055,
-            "macro_f1": 0.4480,
-            "target_f1": 0.4710,
-            "overhead_ms": 347.80,
-            "description": "Omits pairwise cosine graph check; vulnerable to synchronized multi-client adversaries",
-        },
-    }
+    with open("configs/default.yaml") as f:
+        config = yaml.safe_load(f)
 
-    # Save to JSON
-    with open(results_dir / "multi_attack_benchmark.json", "w") as f:
-        json.dump(multi_attack_results, f, indent=2)
+    with open(config["paths"]["label_mapping"]) as f:
+        lm_cfg = yaml.safe_load(f)
+    class_names = [lm_cfg["idx_to_class"][i] for i in range(len(lm_cfg["idx_to_class"]))]
 
-    with open(results_dir / "component_ablation.json", "w") as f:
-        json.dump(component_ablation_results, f, indent=2)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Device: {device} | Split: {split} | Rounds: {num_rounds}")
+
+    server_val_ds   = CICIoTDataset(processed_dir / "server_val.parquet")
+    test_ds         = CICIoTDataset(processed_dir / "test.parquet")
+    partition_files = sorted(partitions_dir.glob("client_*.parquet"))
+    feature_cols    = server_val_ds.feature_cols
+
+    num_clients   = len(partition_files)
+    num_malicious = max(1, int(round(num_clients * 0.20)))  # 20% malicious
+
+    if not baseline_ckpt.exists():
+        log.warning(f"Baseline checkpoint not found at {baseline_ckpt} — starting from random weights.")
+
+    DEFENSES = [
+        ("FedAvg (Poisoned)",   "fedavg"),
+        ("Multi-Krum",          "krum"),
+        ("Trimmed Mean",        "trimmed_mean"),
+        ("Coordinate Median",   "median"),
+        ("Proposed Defense",    "trust_class_aware"),
+    ]
+
+    # ── 1. Multi-Attack Benchmark ─────────────────────────────────────────────
+    ATTACKS: list[tuple[str, object]] = [
+        (
+            "Targeted Label-Flip (RECON → BENIGN)",
+            lambda i: TargetedLabelFlipAttack(source_class=4, target_class=0),
+        ),
+        (
+            "Adaptive Norm-Clipping Attack",
+            lambda i: AdaptiveNormClipAttack(target_norm=1.5, base_poison_scale=-1.0),
+        ),
+        (
+            "Adaptive Cosine-Mimicry Attack",
+            lambda i: AdaptiveCosineMimicAttack(blend_factor=0.4, base_scale=-1.0),
+        ),
+        (
+            "Coordinated Multi-Client Collusion",
+            lambda i: CollusionGroupAttack(
+                collusion_group_ids=list(range(num_malicious)),
+                source_class=4, target_class=0, scale_factor=-1.5,
+            ),
+        ),
+    ]
+
+    multi_attack_results: dict = {}
+
+    for attack_label, attack_factory in ATTACKS:
+        log.info(f"\n{'='*70}\n  ATTACK: {attack_label}\n{'='*70}")
+        multi_attack_results[attack_label] = {}
+        poisoned_clients = _build_poisoned_clients(
+            partition_files, feature_cols, device, attack_factory, num_malicious
+        )
+
+        for defense_label, defense_method in DEFENSES:
+            result = _run_one(
+                label=f"{attack_label} | {defense_label}",
+                config=config,
+                clients=poisoned_clients,
+                server_val_ds=server_val_ds,
+                test_ds=test_ds,
+                device=device,
+                agg_method=defense_method,
+                num_rounds=num_rounds,
+                baseline_ckpt=baseline_ckpt,
+                class_names=class_names,
+            )
+            multi_attack_results[attack_label][defense_label] = result
+
+            # Incremental save after each run
+            with open(results_dir / "multi_attack_benchmark.json", "w") as f:
+                json.dump(multi_attack_results, f, indent=2)
+            log.info(f"  → Saved partial results to results/ablation/multi_attack_benchmark.json")
+
+    # ── 2. Component Ablation Study ───────────────────────────────────────────
+    log.info(f"\n{'='*70}\n  COMPONENT ABLATION (Targeted Label-Flip | 20% Malicious)\n{'='*70}")
+
+    # Use targeted label-flip as the canonical attack for ablation
+    poisoned_clients_ablation = _build_poisoned_clients(
+        partition_files, feature_cols, device,
+        lambda i: TargetedLabelFlipAttack(source_class=4, target_class=0),
+        num_malicious,
+    )
+
+    ablation_configs: list[tuple[str, dict]] = [
+        ("Full Proposed System",           {"disable_head_body_split": False, "disable_state_factor": False}),
+        ("Ablation 1: w/o Head/Body Split","disable_head_body_split True",   {"disable_head_body_split": True,  "disable_state_factor": False}),
+        ("Ablation 2: w/o State Machine",  {"disable_head_body_split": False, "disable_state_factor": True}),
+    ]
+
+    # Fix the above — the list had a stray string. Redo properly:
+    ablation_configs = [
+        ("Full Proposed System",                         False, False),
+        ("Ablation 1: w/o Decoupled Head/Body (Scalar)", True,  False),
+        ("Ablation 2: w/o 3-Tier State Machine",         False, True),
+    ]
+
+    component_ablation_results: dict = {}
+
+    for abl_label, dis_hb, dis_sf in ablation_configs:
+        result = _run_one(
+            label=abl_label,
+            config=config,
+            clients=poisoned_clients_ablation,
+            server_val_ds=server_val_ds,
+            test_ds=test_ds,
+            device=device,
+            agg_method="trust_class_aware",
+            num_rounds=num_rounds,
+            baseline_ckpt=baseline_ckpt,
+            class_names=class_names,
+            disable_head_body_split=dis_hb,
+            disable_state_factor=dis_sf,
+        )
+        component_ablation_results[abl_label] = result
+
+        with open(results_dir / "component_ablation.json", "w") as f:
+            json.dump(component_ablation_results, f, indent=2)
+
+    # ── Print final summary table ─────────────────────────────────────────────
+    print("\n" + "=" * 85)
+    print("  [REAL BENCHMARK RESULTS] Multi-Attack Defense Comparison")
+    print("=" * 85)
+    for atk_name, defenses in multi_attack_results.items():
+        print(f"\n  Attack: {atk_name}")
+        print(f"  {'Defense':<35} {'Accuracy':>8} {'Macro-F1':>9} {'RECON-F1':>9}")
+        print(f"  {'-'*35} {'-'*8} {'-'*9} {'-'*9}")
+        for def_name, metrics in defenses.items():
+            print(
+                f"  {def_name:<35} "
+                f"{metrics['accuracy']*100:>7.2f}% "
+                f"{metrics['macro_f1']*100:>8.2f}% "
+                f"{metrics['target_f1']*100:>8.2f}%"
+            )
 
     print("\n" + "=" * 85)
-    print("  [OK] MULTI-ATTACK BENCHMARK & COMPONENT ABLATION GENERATION COMPLETED")
+    print("  [REAL BENCHMARK RESULTS] Component Ablation Study")
     print("=" * 85)
-    print(f"\n[1] Saved Multi-Attack Matrix to {results_dir / 'multi_attack_benchmark.json'}")
-    print(f"[2] Saved Component Ablation Matrix to {results_dir / 'component_ablation.json'}\n")
+    print(f"  {'Config':<50} {'Accuracy':>8} {'Macro-F1':>9} {'RECON-F1':>9}")
+    print(f"  {'-'*50} {'-'*8} {'-'*9} {'-'*9}")
+    for abl_name, metrics in component_ablation_results.items():
+        print(
+            f"  {abl_name:<50} "
+            f"{metrics['accuracy']*100:>7.2f}% "
+            f"{metrics['macro_f1']*100:>8.2f}% "
+            f"{metrics['target_f1']*100:>8.2f}%"
+        )
+
+    print(f"\n✓ Saved real multi-attack results → results/ablation/multi_attack_benchmark.json")
+    print(f"✓ Saved real component ablation  → results/ablation/component_ablation.json\n")
 
 
 if __name__ == "__main__":
-    generate_benchmark_data()
+    import argparse
+    parser = argparse.ArgumentParser(description="Real Multi-Attack & Ablation Benchmark")
+    parser.add_argument("--rounds",  type=int, default=10,  help="FL rounds per configuration")
+    parser.add_argument("--split",   type=str, default="dev", choices=["dev", "full"])
+    args = parser.parse_args()
+    generate_benchmark_data(num_rounds=args.rounds, split=args.split)

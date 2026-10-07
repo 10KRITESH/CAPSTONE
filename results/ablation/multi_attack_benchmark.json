@@ -1,130 +1,168 @@
 {
-  "Targeted Label-Flip (RECON -> BENIGN)": {
+  "Targeted Label-Flip (RECON \u2192 BENIGN)": {
     "FedAvg (Poisoned)": {
-      "accuracy": 0.8014,
-      "macro_f1": 0.3857,
-      "target_f1": 0.1977,
-      "defense_status": "Vulnerable (-23.64 pts F1)"
+      "accuracy": 0.7597,
+      "macro_f1": 0.5367,
+      "target_f1": 0.2755,
+      "per_class_f1": {
+        "BENIGN": 0.5755,
+        "DDOS": 0.8486,
+        "DOS": 0.5679,
+        "MIRAI": 0.986,
+        "RECON": 0.2755,
+        "MITM": 0.5979,
+        "WEBAPP": 0.2479,
+        "MALWARE": 0.1942
+      },
+      "wall_time_s": 27.3,
+      "agg_time_ms_last": 4.34,
+      "val_time_ms_last": 0.0
     },
     "Multi-Krum": {
-      "accuracy": 0.8063,
-      "macro_f1": 0.4471,
-      "target_f1": 0.5065,
-      "defense_status": "Robust Byzantine Filter"
+      "accuracy": 0.7757,
+      "macro_f1": 0.5981,
+      "target_f1": 0.4602,
+      "per_class_f1": {
+        "BENIGN": 0.672,
+        "DDOS": 0.8562,
+        "DOS": 0.5687,
+        "MIRAI": 0.9816,
+        "RECON": 0.4602,
+        "MITM": 0.6869,
+        "WEBAPP": 0.2995,
+        "MALWARE": 0.2595
+      },
+      "wall_time_s": 24.3,
+      "agg_time_ms_last": 1.45,
+      "val_time_ms_last": 0.0
     },
     "Trimmed Mean": {
-      "accuracy": 0.8062,
-      "macro_f1": 0.439,
-      "target_f1": 0.4413,
-      "defense_status": "Robust Coordinate Averaging"
+      "accuracy": 0.7603,
+      "macro_f1": 0.5742,
+      "target_f1": 0.4837,
+      "per_class_f1": {
+        "BENIGN": 0.6534,
+        "DDOS": 0.8424,
+        "DOS": 0.5699,
+        "MIRAI": 0.9882,
+        "RECON": 0.4837,
+        "MITM": 0.6894,
+        "WEBAPP": 0.1277,
+        "MALWARE": 0.2392
+      },
+      "wall_time_s": 23.6,
+      "agg_time_ms_last": 4.41,
+      "val_time_ms_last": 0.0
     },
     "Coordinate Median": {
-      "accuracy": 0.8028,
-      "macro_f1": 0.4179,
-      "target_f1": 0.4943,
-      "defense_status": "Robust Coordinate Median"
+      "accuracy": 0.7082,
+      "macro_f1": 0.5879,
+      "target_f1": 0.5674,
+      "per_class_f1": {
+        "BENIGN": 0.6677,
+        "DDOS": 0.7819,
+        "DOS": 0.5496,
+        "MIRAI": 0.9805,
+        "RECON": 0.5674,
+        "MITM": 0.7003,
+        "WEBAPP": 0.2079,
+        "MALWARE": 0.2475
+      },
+      "wall_time_s": 24.6,
+      "agg_time_ms_last": 1.88,
+      "val_time_ms_last": 0.0
     },
     "Proposed Defense": {
-      "accuracy": 0.8075,
-      "macro_f1": 0.4612,
-      "target_f1": 0.5037,
-      "defense_status": "Highest Accuracy & Macro-F1 (Audited)"
+      "accuracy": 0.7771,
+      "macro_f1": 0.5669,
+      "target_f1": 0.4869,
+      "per_class_f1": {
+        "BENIGN": 0.6148,
+        "DDOS": 0.863,
+        "DOS": 0.5617,
+        "MIRAI": 0.9878,
+        "RECON": 0.4869,
+        "MITM": 0.6662,
+        "WEBAPP": 0.1203,
+        "MALWARE": 0.2344
+      },
+      "wall_time_s": 31.8,
+      "agg_time_ms_last": 12.04,
+      "val_time_ms_last": 316.65
     }
   },
   "Adaptive Norm-Clipping Attack": {
     "FedAvg (Poisoned)": {
-      "accuracy": 0.7985,
-      "macro_f1": 0.3712,
-      "target_f1": 0.224,
-      "defense_status": "Vulnerable to Stealth Scaling"
+      "accuracy": 0.7574,
+      "macro_f1": 0.4546,
+      "target_f1": 0.4674,
+      "per_class_f1": {
+        "BENIGN": 0.0,
+        "DDOS": 0.8569,
+        "DOS": 0.5523,
+        "MIRAI": 0.9802,
+        "RECON": 0.4674,
+        "MITM": 0.6053,
+        "WEBAPP": 0.0,
+        "MALWARE": 0.175
+      },
+      "wall_time_s": 24.2,
+      "agg_time_ms_last": 4.68,
+      "val_time_ms_last": 0.0
     },
     "Multi-Krum": {
-      "accuracy": 0.8011,
-      "macro_f1": 0.412,
-      "target_f1": 0.4215,
-      "defense_status": "Partial (Distance evasion)"
+      "accuracy": 0.754,
+      "macro_f1": 0.6184,
+      "target_f1": 0.5887,
+      "per_class_f1": {
+        "BENIGN": 0.6736,
+        "DDOS": 0.8332,
+        "DOS": 0.5351,
+        "MIRAI": 0.9788,
+        "RECON": 0.5887,
+        "MITM": 0.7066,
+        "WEBAPP": 0.4082,
+        "MALWARE": 0.2233
+      },
+      "wall_time_s": 24.4,
+      "agg_time_ms_last": 1.43,
+      "val_time_ms_last": 0.0
     },
     "Trimmed Mean": {
-      "accuracy": 0.8034,
-      "macro_f1": 0.4285,
-      "target_f1": 0.453,
-      "defense_status": "Moderate Coordinate Defense"
+      "accuracy": 0.7753,
+      "macro_f1": 0.5878,
+      "target_f1": 0.5968,
+      "per_class_f1": {
+        "BENIGN": 0.6469,
+        "DDOS": 0.8554,
+        "DOS": 0.5625,
+        "MIRAI": 0.9863,
+        "RECON": 0.5968,
+        "MITM": 0.6837,
+        "WEBAPP": 0.1024,
+        "MALWARE": 0.2684
+      },
+      "wall_time_s": 24.7,
+      "agg_time_ms_last": 3.73,
+      "val_time_ms_last": 0.0
     },
     "Coordinate Median": {
-      "accuracy": 0.802,
-      "macro_f1": 0.4095,
-      "target_f1": 0.461,
-      "defense_status": "Robust Median"
-    },
-    "Proposed Defense": {
-      "accuracy": 0.8068,
-      "macro_f1": 0.4588,
-      "target_f1": 0.512,
-      "defense_status": "Fully Resilient (Bounded MAD + Probe)"
-    }
-  },
-  "Adaptive Cosine-Mimicry Attack": {
-    "FedAvg (Poisoned)": {
-      "accuracy": 0.799,
-      "macro_f1": 0.3695,
-      "target_f1": 0.2085,
-      "defense_status": "Vulnerable to Direction Blending"
-    },
-    "Multi-Krum": {
-      "accuracy": 0.798,
-      "macro_f1": 0.398,
-      "target_f1": 0.384,
-      "defense_status": "Bypassed by Blend Direction"
-    },
-    "Trimmed Mean": {
-      "accuracy": 0.8025,
-      "macro_f1": 0.421,
-      "target_f1": 0.435,
-      "defense_status": "Partial Trim Defense"
-    },
-    "Coordinate Median": {
-      "accuracy": 0.8015,
-      "macro_f1": 0.405,
-      "target_f1": 0.448,
-      "defense_status": "Robust Median"
-    },
-    "Proposed Defense": {
-      "accuracy": 0.8071,
-      "macro_f1": 0.4595,
-      "target_f1": 0.5085,
-      "defense_status": "Fully Resilient (Probing Catch)"
-    }
-  },
-  "Coordinated Multi-Client Collusion": {
-    "FedAvg (Poisoned)": {
-      "accuracy": 0.785,
-      "macro_f1": 0.342,
-      "target_f1": 0.145,
-      "defense_status": "Severely Collapsed by Group Drift"
-    },
-    "Multi-Krum": {
-      "accuracy": 0.792,
-      "macro_f1": 0.385,
-      "target_f1": 0.352,
-      "defense_status": "Bypassed (Colluding cluster mimics center)"
-    },
-    "Trimmed Mean": {
-      "accuracy": 0.798,
-      "macro_f1": 0.401,
-      "target_f1": 0.398,
-      "defense_status": "Degraded by Multiple Colluders"
-    },
-    "Coordinate Median": {
-      "accuracy": 0.7995,
-      "macro_f1": 0.396,
-      "target_f1": 0.412,
-      "defense_status": "Partial Robustness"
-    },
-    "Proposed Defense": {
-      "accuracy": 0.8062,
-      "macro_f1": 0.457,
-      "target_f1": 0.4995,
-      "defense_status": "Collusion Group Flagged & Suppressed"
+      "accuracy": 0.7294,
+      "macro_f1": 0.5785,
+      "target_f1": 0.5559,
+      "per_class_f1": {
+        "BENIGN": 0.6618,
+        "DDOS": 0.8087,
+        "DOS": 0.5491,
+        "MIRAI": 0.9878,
+        "RECON": 0.5559,
+        "MITM": 0.6774,
+        "WEBAPP": 0.1338,
+        "MALWARE": 0.2537
+      },
+      "wall_time_s": 25.7,
+      "agg_time_ms_last": 1.82,
+      "val_time_ms_last": 0.0
     }
   }
 }
