@@ -121,7 +121,19 @@ class FLClient:
         global_weights = {k: v.clone().detach() for k, v in global_model.state_dict().items()}
 
         optimizer = torch.optim.Adam(local_model.parameters(), lr=lr, weight_decay=weight_decay)
-        criterion = nn.CrossEntropyLoss()
+
+        # ── Class-weighted loss to combat minority-class starvation ───────────
+        # Under Non-IID Dirichlet partitioning, some clients may have very few
+        # samples of minority classes (MALWARE, WEBAPP, MITM). Inverse-frequency
+        # class weights ensure these classes still receive meaningful gradient signal.
+        class_counts = torch.bincount(
+            torch.from_numpy(y_np), minlength=self.num_classes
+        ).float()
+        # Smooth with +1 to avoid division by zero for classes absent in this partition
+        class_weights = 1.0 / (class_counts + 1.0)
+        # Normalise so mean weight = 1.0 (preserve effective learning rate)
+        class_weights = class_weights / class_weights.mean()
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(self.device))
 
         # 4. Local epoch training loop
         local_model.train()

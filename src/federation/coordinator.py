@@ -39,6 +39,8 @@ from src.trust.cold_start import ColdStartManager
 from src.trust.evidence import TemporalEvidenceTracker
 from src.trust.reputation import PerClassReputationManager
 from src.trust.state_machine import ClientStateMachine
+from src.attacks.adaptive_cosine_mimic import AdaptiveCosineMimicAttack
+from src.attacks.on_off import OnOffAttackWrapper
 from src.trust.validator import UpdateValidator, flatten_update
 
 log = logging.getLogger(__name__)
@@ -115,6 +117,10 @@ class FLCoordinator:
         self.db_repo = AuditRepository("data/audit.db")
         self.bc_client = BlockchainClient()
 
+        # Track the previous round's aggregate update direction for AdaptiveCosineMimicAttack
+        # (the attacker observes past model deltas to calibrate their mimicry direction)
+        self._prev_agg_flat: torch.Tensor | None = None
+
     def aggregate_fedavg(
         self, updates: list[dict[str, torch.Tensor]], sample_counts: list[int]
     ) -> float:
@@ -170,6 +176,18 @@ class FLCoordinator:
         sample_counts = []
         client_metrics = []
 
+        # ── Inject reference direction into AdaptiveCosineMimicAttack instances ──
+        # The attacker uses the previous round's aggregate update direction as the
+        # reference to blend against, keeping their cosine similarity high.
+        if self._prev_agg_flat is not None:
+            for client in selected_clients:
+                atk = client.attack
+                # Unwrap OnOff wrapper if present
+                if isinstance(atk, OnOffAttackWrapper):
+                    atk = atk.wrapped_attack
+                if isinstance(atk, AdaptiveCosineMimicAttack):
+                    atk.set_reference(self._prev_agg_flat)
+
         # 1. Local Client Training
         for client in selected_clients:
             update, n_samples, c_metrics = client.train_local(
@@ -182,6 +200,18 @@ class FLCoordinator:
             updates.append(update)
             sample_counts.append(n_samples)
             client_metrics.append(c_metrics)
+
+        # ── Update the aggregate reference for next round's cosine mimic attack ──
+        # Use the unweighted mean of all floating-point update tensors.
+        try:
+            float_keys = [k for k, v in updates[0].items() if torch.is_floating_point(v)]
+            agg_flat = torch.cat([
+                torch.stack([u[k].float().reshape(-1) for u in updates]).mean(dim=0)
+                for k in float_keys
+            ])
+            self._prev_agg_flat = agg_flat.cpu()
+        except Exception:
+            pass  # Non-critical; skip on error
 
         # Compute transmitted bytes overhead per round
         sample_update_bytes = sum(u.element_size() * u.nelement() for u in updates[0].values())

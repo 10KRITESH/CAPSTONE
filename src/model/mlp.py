@@ -9,10 +9,15 @@ zero refactoring later.
 Architecture:
     Input (F features)
       ↓
-    body: Linear(F→H1) → BN → ReLU → Dropout
-          Linear(H1→H2) → BN → ReLU → Dropout
+    body: Linear(F→H1) → LayerNorm(H1) → ReLU → Dropout
+          Linear(H1→H2) → LayerNorm(H2) → ReLU → Dropout
       ↓
     head: Linear(H2→num_classes)
+
+Note: LayerNorm is used instead of BatchNorm1d because BatchNorm maintains
+running statistics that diverge under Non-IID Dirichlet data distributions in
+federated learning. LayerNorm normalises each sample independently (no running
+stats), making it robust to heterogeneous client data distributions.
 
 Default: F=32, H1=128, H2=64, num_classes=8, dropout=0.3
 """
@@ -48,14 +53,16 @@ class IDS_MLP(nn.Module):
         super().__init__()
 
         # ── Body (shared representation layers) ───────────────────────────────
+        # LayerNorm over the feature dimension is FL-friendly: no running stats,
+        # no divergence between clients with heterogeneous class distributions.
         self.body = nn.Sequential(
             nn.Linear(in_features, hidden1),
-            nn.BatchNorm1d(hidden1),
+            nn.LayerNorm(hidden1),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout),
 
             nn.Linear(hidden1, hidden2),
-            nn.BatchNorm1d(hidden2),
+            nn.LayerNorm(hidden2),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout),
         )
@@ -77,13 +84,13 @@ class IDS_MLP(nn.Module):
     # ── Initialisation ────────────────────────────────────────────────────────
 
     def _init_weights(self) -> None:
-        """Kaiming uniform for linear layers, constant for BN."""
+        """Kaiming uniform for linear layers, constant for LayerNorm."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm1d):
+            elif isinstance(m, nn.LayerNorm):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
 
