@@ -43,4 +43,5 @@ MERGED_CSV.zip
 # Logs & temp stores
 *.log
 scratch/
+results/runs/
 
