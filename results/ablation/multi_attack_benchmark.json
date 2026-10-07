@@ -163,6 +163,208 @@
       "wall_time_s": 25.7,
       "agg_time_ms_last": 1.82,
       "val_time_ms_last": 0.0
+    },
+    "Proposed Defense": {
+      "accuracy": 0.7796,
+      "macro_f1": 0.5669,
+      "target_f1": 0.5009,
+      "per_class_f1": {
+        "BENIGN": 0.6291,
+        "DDOS": 0.8655,
+        "DOS": 0.5557,
+        "MIRAI": 0.9858,
+        "RECON": 0.5009,
+        "MITM": 0.6688,
+        "WEBAPP": 0.1046,
+        "MALWARE": 0.2245
+      },
+      "wall_time_s": 31.9,
+      "agg_time_ms_last": 11.48,
+      "val_time_ms_last": 328.66
+    }
+  },
+  "Adaptive Cosine-Mimicry Attack": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.76,
+      "macro_f1": 0.5341,
+      "target_f1": 0.4996,
+      "per_class_f1": {
+        "BENIGN": 0.4747,
+        "DDOS": 0.8495,
+        "DOS": 0.5685,
+        "MIRAI": 0.9875,
+        "RECON": 0.4996,
+        "MITM": 0.6808,
+        "WEBAPP": 0.0075,
+        "MALWARE": 0.2049
+      },
+      "wall_time_s": 24.4,
+      "agg_time_ms_last": 4.58,
+      "val_time_ms_last": 0.0
+    },
+    "Multi-Krum": {
+      "accuracy": 0.7516,
+      "macro_f1": 0.58,
+      "target_f1": 0.5888,
+      "per_class_f1": {
+        "BENIGN": 0.6051,
+        "DDOS": 0.8314,
+        "DOS": 0.5646,
+        "MIRAI": 0.9823,
+        "RECON": 0.5888,
+        "MITM": 0.6372,
+        "WEBAPP": 0.1499,
+        "MALWARE": 0.2809
+      },
+      "wall_time_s": 24.3,
+      "agg_time_ms_last": 1.41,
+      "val_time_ms_last": 0.0
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.7714,
+      "macro_f1": 0.5828,
+      "target_f1": 0.5712,
+      "per_class_f1": {
+        "BENIGN": 0.6477,
+        "DDOS": 0.8518,
+        "DOS": 0.5708,
+        "MIRAI": 0.9849,
+        "RECON": 0.5712,
+        "MITM": 0.6759,
+        "WEBAPP": 0.099,
+        "MALWARE": 0.2611
+      },
+      "wall_time_s": 24.3,
+      "agg_time_ms_last": 4.62,
+      "val_time_ms_last": 0.0
+    },
+    "Coordinate Median": {
+      "accuracy": 0.7476,
+      "macro_f1": 0.5919,
+      "target_f1": 0.5925,
+      "per_class_f1": {
+        "BENIGN": 0.668,
+        "DDOS": 0.8253,
+        "DOS": 0.5605,
+        "MIRAI": 0.9848,
+        "RECON": 0.5925,
+        "MITM": 0.6765,
+        "WEBAPP": 0.1481,
+        "MALWARE": 0.2794
+      },
+      "wall_time_s": 24.5,
+      "agg_time_ms_last": 1.84,
+      "val_time_ms_last": 0.0
+    },
+    "Proposed Defense": {
+      "accuracy": 0.7649,
+      "macro_f1": 0.5989,
+      "target_f1": 0.5439,
+      "per_class_f1": {
+        "BENIGN": 0.6631,
+        "DDOS": 0.8476,
+        "DOS": 0.541,
+        "MIRAI": 0.9877,
+        "RECON": 0.5439,
+        "MITM": 0.6841,
+        "WEBAPP": 0.2859,
+        "MALWARE": 0.2382
+      },
+      "wall_time_s": 30.7,
+      "agg_time_ms_last": 11.59,
+      "val_time_ms_last": 317.39
+    }
+  },
+  "Coordinated Multi-Client Collusion": {
+    "FedAvg (Poisoned)": {
+      "accuracy": 0.7691,
+      "macro_f1": 0.4235,
+      "target_f1": 0.4485,
+      "per_class_f1": {
+        "BENIGN": 0.0,
+        "DDOS": 0.8657,
+        "DOS": 0.534,
+        "MIRAI": 0.9871,
+        "RECON": 0.4485,
+        "MITM": 0.5398,
+        "WEBAPP": 0.0,
+        "MALWARE": 0.013
+      },
+      "wall_time_s": 24.7,
+      "agg_time_ms_last": 4.55,
+      "val_time_ms_last": 0.0
+    },
+    "Multi-Krum": {
+      "accuracy": 0.7735,
+      "macro_f1": 0.5807,
+      "target_f1": 0.5727,
+      "per_class_f1": {
+        "BENIGN": 0.6759,
+        "DDOS": 0.8531,
+        "DOS": 0.5695,
+        "MIRAI": 0.9856,
+        "RECON": 0.5727,
+        "MITM": 0.6822,
+        "WEBAPP": 0.0441,
+        "MALWARE": 0.2629
+      },
+      "wall_time_s": 25.1,
+      "agg_time_ms_last": 1.37,
+      "val_time_ms_last": 0.0
+    },
+    "Trimmed Mean": {
+      "accuracy": 0.7486,
+      "macro_f1": 0.5278,
+      "target_f1": 0.5269,
+      "per_class_f1": {
+        "BENIGN": 0.3834,
+        "DDOS": 0.835,
+        "DOS": 0.5491,
+        "MIRAI": 0.984,
+        "RECON": 0.5269,
+        "MITM": 0.6561,
+        "WEBAPP": 0.0491,
+        "MALWARE": 0.2388
+      },
+      "wall_time_s": 23.9,
+      "agg_time_ms_last": 4.37,
+      "val_time_ms_last": 0.0
+    },
+    "Coordinate Median": {
+      "accuracy": 0.7555,
+      "macro_f1": 0.5708,
+      "target_f1": 0.5651,
+      "per_class_f1": {
+        "BENIGN": 0.616,
+        "DDOS": 0.837,
+        "DOS": 0.5579,
+        "MIRAI": 0.9867,
+        "RECON": 0.5651,
+        "MITM": 0.6638,
+        "WEBAPP": 0.0729,
+        "MALWARE": 0.267
+      },
+      "wall_time_s": 24.6,
+      "agg_time_ms_last": 1.99,
+      "val_time_ms_last": 0.0
+    },
+    "Proposed Defense": {
+      "accuracy": 0.7673,
+      "macro_f1": 0.5642,
+      "target_f1": 0.5384,
+      "per_class_f1": {
+        "BENIGN": 0.5815,
+        "DDOS": 0.8522,
+        "DOS": 0.5633,
+        "MIRAI": 0.9893,
+        "RECON": 0.5384,
+        "MITM": 0.6644,
+        "WEBAPP": 0.0856,
+        "MALWARE": 0.2386
+      },
+      "wall_time_s": 31.1,
+      "agg_time_ms_last": 12.12,
+      "val_time_ms_last": 492.51
     }
   }
 }

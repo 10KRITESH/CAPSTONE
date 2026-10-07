@@ -1,44 +1,56 @@
 {
   "Full Proposed System": {
-    "accuracy": 0.8075,
-    "macro_f1": 0.4612,
-    "target_f1": 0.5037,
-    "overhead_ms": 350.38,
-    "description": "Complete Defense (Geometric Median + Multi-Signal + Per-Class + Head/Body + State Machine + Collusion)"
+    "accuracy": 0.7753,
+    "macro_f1": 0.5681,
+    "target_f1": 0.5447,
+    "per_class_f1": {
+      "BENIGN": 0.6041,
+      "DDOS": 0.8598,
+      "DOS": 0.563,
+      "MIRAI": 0.9873,
+      "RECON": 0.5447,
+      "MITM": 0.6957,
+      "WEBAPP": 0.0526,
+      "MALWARE": 0.238
+    },
+    "wall_time_s": 31.1,
+    "agg_time_ms_last": 11.77,
+    "val_time_ms_last": 343.68
   },
-  "Ablation 1: w/o Decoupled Head/Body (Uniform Scalar Trust)": {
-    "accuracy": 0.8038,
-    "macro_f1": 0.428,
-    "target_f1": 0.435,
-    "overhead_ms": 348.12,
-    "description": "Uses single scalar trust across all layers; loses fine-grained per-class head protection (-6.87 pts target F1)"
+  "Ablation 1: w/o Decoupled Head/Body (Scalar)": {
+    "accuracy": 0.7652,
+    "macro_f1": 0.5952,
+    "target_f1": 0.4845,
+    "per_class_f1": {
+      "BENIGN": 0.6264,
+      "DDOS": 0.8482,
+      "DOS": 0.5545,
+      "MIRAI": 0.9884,
+      "RECON": 0.4845,
+      "MITM": 0.6558,
+      "WEBAPP": 0.4118,
+      "MALWARE": 0.1921
+    },
+    "wall_time_s": 31.8,
+    "agg_time_ms_last": 11.92,
+    "val_time_ms_last": 355.91
   },
-  "Ablation 2: w/o 3-Tier State Machine (Static Thresholding)": {
-    "accuracy": 0.8045,
-    "macro_f1": 0.439,
-    "target_f1": 0.462,
-    "overhead_ms": 346.5,
-    "description": "Replaces 3-tier state machine (Trusted/Probation/Quarantine) with fixed pass/fail; loses gradual recovery (-4.17 pts target F1)"
-  },
-  "Ablation 3: w/o Geometric Median Reference (Arithmetic Mean)": {
-    "accuracy": 0.8018,
-    "macro_f1": 0.415,
-    "target_f1": 0.421,
-    "overhead_ms": 312.4,
-    "description": "Scores updates against arithmetic mean; vulnerable to reference dragging by large outliers (-8.27 pts target F1)"
-  },
-  "Ablation 4: w/o Semantic Validation Probing (Signals A & B only)": {
-    "accuracy": 0.8029,
-    "macro_f1": 0.4215,
-    "target_f1": 0.398,
-    "overhead_ms": 13.59,
-    "description": "Relies only on cosine & MAD norm; fails to catch geometrically stealthy label-flipping (-10.57 pts target F1)"
-  },
-  "Ablation 5: w/o Sub-Cluster Collusion Detection": {
-    "accuracy": 0.8055,
-    "macro_f1": 0.448,
-    "target_f1": 0.471,
-    "overhead_ms": 347.8,
-    "description": "Omits pairwise cosine graph check; vulnerable to synchronized multi-client adversaries"
+  "Ablation 2: w/o 3-Tier State Machine": {
+    "accuracy": 0.7705,
+    "macro_f1": 0.5715,
+    "target_f1": 0.5002,
+    "per_class_f1": {
+      "BENIGN": 0.629,
+      "DDOS": 0.8545,
+      "DOS": 0.5702,
+      "MIRAI": 0.9884,
+      "RECON": 0.5002,
+      "MITM": 0.6816,
+      "WEBAPP": 0.1066,
+      "MALWARE": 0.2416
+    },
+    "wall_time_s": 31.6,
+    "agg_time_ms_last": 11.77,
+    "val_time_ms_last": 395.91
   }
 }
