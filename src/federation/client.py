@@ -62,6 +62,13 @@ class FLClient:
         self.df_raw = pd.read_parquet(self.partition_path)
         self.num_samples = len(self.df_raw)
 
+        # Pre-cache clean tensors and class weights to avoid per-round DataFrame conversions
+        self._X_clean = torch.from_numpy(self.df_raw[self.feature_cols].to_numpy(dtype="float32").copy())
+        self._y_clean = torch.from_numpy(self.df_raw["label"].to_numpy(dtype="int64").copy())
+        class_counts = torch.bincount(self._y_clean, minlength=self.num_classes).float()
+        cw = 1.0 / (class_counts + 1.0)
+        self._class_weights_clean = cw / cw.mean()
+
     def train_local(
         self,
         global_model: IDS_MLP,
@@ -88,42 +95,27 @@ class FLClient:
             generator.manual_seed(train_seed + round_num * 1000 + c_int)
 
         # 1. Apply data-level attack if malicious
-        df_train = self.df_raw
         if self.attack is not None:
-            df_train = self.attack.poison_data(df_train, round_num=round_num)
+            df_train = self.attack.poison_data(self.df_raw, round_num=round_num)
+            X_np = df_train[self.feature_cols].to_numpy(dtype="float32").copy()
+            y_np = df_train["label"].to_numpy(dtype="int64").copy()
+            X_tensor = torch.from_numpy(X_np)
+            y_tensor = torch.from_numpy(y_np)
+            class_counts = torch.bincount(y_tensor, minlength=self.num_classes).float()
+            cw = 1.0 / (class_counts + 1.0)
+            class_weights = cw / cw.mean()
+        else:
+            X_tensor = self._X_clean
+            y_tensor = self._y_clean
+            class_weights = self._class_weights_clean
 
         # 2. Build local PyTorch TensorDataset & DataLoader
-        X_np = df_train[self.feature_cols].to_numpy(dtype="float32").copy()
-        y_np = df_train["label"].to_numpy(dtype="int64").copy()
-
-        X_tensor = torch.from_numpy(X_np)
-        y_tensor = torch.from_numpy(y_np)
-
-        # ── BUG FIX: GPU pre-load optimisation ───────────────────────────────
-        # Move the client's partition to VRAM once instead of transferring each
-        # batch through PCIe. Only when dataset fits comfortably in free VRAM.
-        dataset_mb = (X_tensor.nelement() * 4) / 1e6
-        vram_free_mb = (
-            (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved(0)) / 1e6
-            if self.device.type == "cuda" else 0
+        dataset = TensorDataset(X_tensor, y_tensor)
+        loader = DataLoader(
+            dataset, batch_size=batch_size, shuffle=True,
+            drop_last=(len(dataset) > batch_size),
+            generator=generator,
         )
-        if self.device.type == "cuda" and dataset_mb < vram_free_mb * 0.20:
-            X_tensor = X_tensor.to(self.device)
-            y_tensor = y_tensor.to(self.device)
-            dataset = TensorDataset(X_tensor, y_tensor)
-            loader = DataLoader(
-                dataset, batch_size=batch_size, shuffle=True,
-                num_workers=0, drop_last=(len(dataset) > batch_size),
-                generator=generator,
-            )
-        else:
-            dataset = TensorDataset(X_tensor, y_tensor)
-            loader = DataLoader(
-                dataset, batch_size=batch_size, shuffle=True,
-                drop_last=(len(dataset) > batch_size),
-                generator=generator,
-            )
-
 
         # 3. Instantiate local model initialized with global weights
         local_model = IDS_MLP(**global_model.config).to(self.device)
@@ -131,18 +123,6 @@ class FLClient:
         global_weights = {k: v.clone().detach() for k, v in global_model.state_dict().items()}
 
         optimizer = torch.optim.Adam(local_model.parameters(), lr=lr, weight_decay=weight_decay)
-
-        # ── Class-weighted loss to combat minority-class starvation ───────────
-        # Under Non-IID Dirichlet partitioning, some clients may have very few
-        # samples of minority classes (MALWARE, WEBAPP, MITM). Inverse-frequency
-        # class weights ensure these classes still receive meaningful gradient signal.
-        class_counts = torch.bincount(
-            torch.from_numpy(y_np), minlength=self.num_classes
-        ).float()
-        # Smooth with +1 to avoid division by zero for classes absent in this partition
-        class_weights = 1.0 / (class_counts + 1.0)
-        # Normalise so mean weight = 1.0 (preserve effective learning rate)
-        class_weights = class_weights / class_weights.mean()
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(self.device))
 
         # 4. Local epoch training loop

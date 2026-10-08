@@ -467,7 +467,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Step D 30-round benchmark evaluation")
     parser.add_argument("--split", type=str, default="dev", help="Dataset split")
     parser.add_argument("--run-id", type=str, default="step_d_evaluate", help="Run identifier")
-    parser.add_argument("--workers", type=int, default=4, help="Number of concurrent worker processes")
+    parser.add_argument("--workers", type=int, default=8, help="Number of concurrent worker processes")
     args = parser.parse_args()
     run_step_d_evaluation(split=args.split, run_id=args.run_id, num_workers=args.workers)
 
