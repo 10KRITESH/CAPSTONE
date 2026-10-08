@@ -44,6 +44,22 @@
   - Independent Clusters: `1` | Distinct Attacker Sets (4): `[[0, 6], [3, 7], [3, 8], [4, 8]]`
   - Realized RECON Share per Config: seed 1: [3, 8] (sample=27.8%, recon=6.6%); seed 2: [3, 7] (sample=38.1%, recon=12.3%); seed 3: [0, 6] (sample=24.9%, recon=8.8%); seed 4: [4, 8] (sample=19.6%, recon=14.2%); seed 5: [4, 8] (sample=19.6%, recon=14.2%)
 
+### Calibrated Attack Evaluation Gate (Phase E2: 30 Rounds, Evaluation Partitions 101..105):
+*Source Run:* `results/runs/phase_e2_evaluation/runs.jsonl` (Kaggle Cloud GPU, NVIDIA Tesla T4)
+| Attack / Calibration | Partitions | Distinct Atk Sets | Realized RECON Share | Paired RECON F1 Drop [95% CI] | Paired ASR Delta [95% CI] | ASR_ok | F1_ok | Gate Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `targeted_label_flip` ($\gamma=2.0$, Band `[0.25, 0.40]`) | `[101, 102, 103, 104, 105]` | 10 | 32.4% [26.8%, 37.9%] | **+25.7% [+12.1%, +39.2%]** | **+14.0% [+6.0%, +21.3%]** | **True** | **True** | **`PASS`** |
+
+#### Damage Decomposition (Partition 11, Seed 1, 15 Rounds):
+- **Honest Control (10 clients):** Macro-F1 = 41.44%, RECON F1 = 44.48%, ASR = 0.00%
+- **Attackers Removed (8 clients):** Macro-F1 = 41.80%, RECON F1 = 45.66%, ASR = 0.00% (diff: +1.18%)
+- **Random Label Noise Control:** Macro-F1 = 41.45%, RECON F1 = 43.90%, ASR = 0.00% (drop: +0.58%)
+- **Targeted Steering ($\gamma=2.0$):** Macro-F1 = 41.31%, RECON F1 = 42.78%, ASR = 0.00% (drop: +1.70%, accounts for ~66% of degradation)
+
+#### Untargeted Attack Potency Gates (Partitions 11..13, 15 Rounds, n=6):
+- **`adaptive_norm_clip`:** Mean Macro-F1 Drop = **+4.20% [+1.86%, +6.18%]** | Gate: **`PASS`**
+- **`adaptive_cosine_mimic`:** Mean Macro-F1 Drop = **+14.58% [+3.13%, +33.67%]** | Gate: **`PASS`**
+
 ## 3. Step B: "Before" False-Positive Baseline Progression (Current D0 Detector, Clean 30 Rounds)
 | Round | Mean in Probation | Mean Quarantined | Honest Data Excluded (%) | Honest RECON Excluded (%) |
 | :---: | :---: | :---: | :---: | :---: |

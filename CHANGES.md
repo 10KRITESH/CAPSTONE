@@ -527,3 +527,18 @@
   - *`fast_gpu_evaluate`:* Vectorized PyTorch GPU confusion matrix computation (`bincount(8 * y_true + y_pred)`). Extracts true positives, false positives, false negatives, per-class F1, macro-F1, and ASR in < 5ms without CPU/sklearn overhead.
   - *`execute_single_simulation`:* Core simulation routine with in-memory parquet caching, batch size 1024, pinned memory, and cuDNN benchmarking enabled.
   - *`ProcessPoolExecutor(max_workers=4)`:* Spawns 4 concurrent simulation processes across CPU cores and GPU streams, enabling simultaneous execution of multiple federated runs.
+  - *Feature column filter fix:* Filtered out `'class_name'` alongside `'label'` (`[c for c in test_df.columns if c not in ("label", "class_name")]`) to prevent string-to-float conversion errors on raw parquet files.
+
+#### `FINDINGS_ADDENDUM.md`
+- **Purpose:** Living repository of empirical findings, failure root causes, and experimental verification data.
+- **How it fits into overall flow:** Provides researchers and auditors with the exact mathematical derivations and empirical logs supporting project conclusions.
+- **Block-by-block explanation:**
+  - *Part 4 (Phase E2):* Documents the diagnosis of label-flip failure (Step 1), presents the full 10-config evaluation verification matrix for the calibrated attack (Step 2) with cluster bootstrap confidence intervals, details the 4-condition damage decomposition table (Step 3), and records the potency gate outcomes for `adaptive_norm_clip` and `adaptive_cosine_mimic` (Step 4).
+
+#### `RESULTS.md`
+- **Purpose:** Project-level benchmark report tracking defense and attack evaluation outcomes.
+- **How it fits into overall flow:** Acts as the executive summary of empirical results for all simulated configurations.
+- **Block-by-block explanation:**
+  - *Calibrated Attack Potency Gate:* Summarizes the 30-round evaluation of `targeted_label_flip` ($\gamma=2.0$, Band `[0.25, 0.40]`) across partitions 101..105, recording paired RECON F1 drop (+25.7% [+12.1%, +39.2%]), paired ASR delta (+14.0% [+6.0%, +21.3%]), and the resulting `PASS` status.
+  - *Damage Decomposition:* Records the 15-round performance metrics for Honest Control, Attackers Removed, Random Label Noise, and Targeted Steering.
+  - *Untargeted Gates:* Documents the `PASS` outcomes for `adaptive_norm_clip` and `adaptive_cosine_mimic`.
