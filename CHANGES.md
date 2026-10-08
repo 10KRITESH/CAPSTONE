@@ -502,3 +502,20 @@
 - **How it fits into overall flow:** Authoritative source for all components.
 - **Block-by-block explanation:**
   - *`attack.potent`:* Recorded the calibrated settings that passed 3/3 calibration partitions under the potency gate: `band: [0.25, 0.40]`, `boost_factor: 2.0`, `local_epochs: 1`.
+
+#### `src/experiments/run_phase_e2_evaluation.py`
+- **Purpose:** Orchestrates the complete Phase E2 evaluation suite across Steps 2, 3, and 4.
+- **How it fits into overall flow:** Runs evaluation verification (30 rounds on partitions 101..105 x train seeds 201..202), damage decomposition controls on Partition 11 (honest control, attackers removed, random label noise, and targeted steering), and untargeted attack gate evaluations (`adaptive_norm_clip` and `adaptive_cosine_mimic`).
+- **Block-by-block explanation:**
+  - *`RandomLabelNoiseAttack`:* Custom attack class flipping RECON to random non-RECON classes to isolate gradient noise from targeted steering.
+  - *`run_simulation`:* General simulation function supporting custom client configurations, local epochs, and selective client subsets.
+  - *Step 2 Evaluation Loop:* Evaluates calibrated attack on evaluation partitions with 30-round undefended FedAvg and calls `evaluate_potency_gate`.
+  - *Step 3 Damage Decomposition:* Executes the 4 controlled scenarios on identical attacker sets to quantify degradation contributions.
+  - *Step 4 Untargeted Attacks:* Evaluates macro-F1 drop gate on `adaptive_norm_clip` and `adaptive_cosine_mimic`.
+
+#### `kaggle/kaggle_fl_benchmark.ipynb` & `kaggle/kernel-metadata.json`
+- **Purpose:** Kaggle cloud GPU automation harness.
+- **How it fits into overall flow:** Mounts the uploaded private dataset `spector10/ciciot2023-fl-dev-partitions`, runs unit tests, executes `run_phase_e2_evaluation.py` on cloud GPU, and packages artifacts.
+- **Block-by-block explanation:**
+  - *`kernel-metadata.json`:* Added `dataset_sources: ["spector10/ciciot2023-fl-dev-partitions"]`.
+  - *`kaggle_fl_benchmark.ipynb`:* Added symlinks from `/kaggle/input/` to `data/` and execution call for `run_phase_e2_evaluation.py`.
