@@ -237,7 +237,7 @@ def main():
 
     test_path_str = "data/processed/dev/test.parquet"
     test_df = pd.read_parquet(test_path_str)
-    feature_cols = [c for c in test_df.columns if c != "label"]
+    feature_cols = [c for c in test_df.columns if c not in ("label", "class_name")]
 
     t_suite_start = time.time()
     tasks_to_run = []

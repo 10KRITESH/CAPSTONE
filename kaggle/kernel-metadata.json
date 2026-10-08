@@ -4,11 +4,13 @@
   "code_file": "kaggle_fl_benchmark.ipynb",
   "language": "python",
   "kernel_type": "notebook",
-  "is_private": "true",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
-  "enable_internet": "true",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
+    "spector10/capstone-code",
     "spector10/ciciot2023-fl-dev-partitions"
   ],
   "competition_sources": [],
