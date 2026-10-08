@@ -341,11 +341,13 @@
   - Records honest false-positive rates, attacker detection rates, and test metrics.
 
 ### `src/experiments/step_d_evaluate.py`
-- **Purpose:** Full 30-round evaluation across 10 evaluation seeds (`101..110`) comparing baselines and screened variants.
+- **Purpose:** Full 30-round evaluation across 10 evaluation seeds (`101..110`) comparing baselines and screened variants with multi-process GPU concurrency.
 - **How it fits into overall flow:** Generates the definitive experimental evidence for the capstone research artifact.
 - **Block-by-block explanation:**
   - Evaluates `fedavg`, `median`, `trimmed_mean`, `krum`, `proposed_trust_off`, `proposed_d0`, `proposed_d1_100` (ORACLE), `proposed_d2_z3` (deployable), `proposed_d4`, and `proposed_d2_z3_d4`.
+  - Implements `_eval_worker_task` top-level worker with `concurrent.futures.ProcessPoolExecutor` (spawn context) allowing 4 parallel simulation runs concurrently on CUDA, cutting runtime by ~4x.
   - Tracks checkpoint exclusions (rounds 5, 10, 20, 30), attributable attacker detection, and macro utility metrics.
+  - Thread/process-safely appends results incrementally to `runs.jsonl` and `client_rounds.csv`.
 
 ### `src/experiments/aggregate_results.py`
 - **Purpose:** Publication aggregator, hypothesis tester, and multi-file report generator.

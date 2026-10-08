@@ -16,9 +16,11 @@ Tracks:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import copy
 import json
 import logging
+import multiprocessing as mp
 from pathlib import Path
 import sys
 import time
@@ -285,7 +287,54 @@ def run_single_eval_experiment(
     return run_summary, round_telemetry
 
 
-def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate"):
+def _eval_worker_task(args: tuple) -> tuple[dict, list[dict]]:
+    (
+        method_name,
+        scenario,
+        seed,
+        config,
+        partition_files,
+        feature_cols,
+        server_val_path,
+        test_path,
+        class_names,
+        client_total_samples,
+        client_recon_samples,
+        oracle_client_support,
+        total_training_samples,
+        total_recon_samples,
+        source_class,
+        run_dir_str,
+    ) = args
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_dir = Path(run_dir_str)
+    server_val_ds = CICIoTDataset(Path(server_val_path))
+    test_ds = CICIoTDataset(Path(test_path))
+    attacker_selector = AttackerSelector(partition_files, source_class=source_class)
+
+    return run_single_eval_experiment(
+        method_name=method_name,
+        scenario=scenario,
+        seed=seed,
+        config=config,
+        partition_files=partition_files,
+        feature_cols=feature_cols,
+        server_val_ds=server_val_ds,
+        test_ds=test_ds,
+        class_names=class_names,
+        client_total_samples=client_total_samples,
+        client_recon_samples=client_recon_samples,
+        oracle_client_support=oracle_client_support,
+        total_training_samples=total_training_samples,
+        total_recon_samples=total_recon_samples,
+        attacker_selector=attacker_selector,
+        device=device,
+        run_dir=run_dir,
+    )
+
+
+def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate", num_workers: int = 4):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     run_dir = Path("results/runs") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -299,8 +348,9 @@ def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate"):
     partitions_dir = Path("data/partitions") / split
     partition_files = sorted(partitions_dir.glob("client_*.parquet"))
 
-    server_val_ds = CICIoTDataset(processed_dir / "server_val.parquet")
-    test_ds = CICIoTDataset(processed_dir / "test.parquet")
+    server_val_path = processed_dir / "server_val.parquet"
+    test_path = processed_dir / "test.parquet"
+    server_val_ds = CICIoTDataset(server_val_path)
     feature_cols = server_val_ds.feature_cols
 
     with open(config["paths"]["label_mapping"]) as f:
@@ -321,7 +371,6 @@ def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate"):
 
     total_training_samples = sum(client_total_samples.values())
     total_recon_samples = sum(client_recon_samples.values())
-    attacker_selector = AttackerSelector(partition_files, source_class=4)
 
     # Resume support
     completed_keys = set()
@@ -357,33 +406,46 @@ def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate"):
         "proposed_d2_z3_d4" # Combined Deployable
     ]
 
+    pending_tasks = []
     for method in methods_to_evaluate:
         for scenario in ["clean", "attacked"]:
             for seed in EVALUATION_SEEDS:
                 key = (method, scenario, seed)
-                if key in completed_keys:
-                    continue
+                if key not in completed_keys:
+                    pending_tasks.append((
+                        method,
+                        scenario,
+                        seed,
+                        config,
+                        partition_files,
+                        feature_cols,
+                        str(server_val_path),
+                        str(test_path),
+                        class_names,
+                        client_total_samples,
+                        client_recon_samples,
+                        oracle_client_support,
+                        total_training_samples,
+                        total_recon_samples,
+                        4,
+                        str(run_dir),
+                    ))
 
-                log.info(f"Evaluating: {method} | {scenario.upper()} | Seed {seed}")
-                res, telem = run_single_eval_experiment(
-                    method_name=method,
-                    scenario=scenario,
-                    seed=seed,
-                    config=config,
-                    partition_files=partition_files,
-                    feature_cols=feature_cols,
-                    server_val_ds=server_val_ds,
-                    test_ds=test_ds,
-                    class_names=class_names,
-                    client_total_samples=client_total_samples,
-                    client_recon_samples=client_recon_samples,
-                    oracle_client_support=oracle_client_support,
-                    total_training_samples=total_training_samples,
-                    total_recon_samples=total_recon_samples,
-                    attacker_selector=attacker_selector,
-                    device=device,
-                    run_dir=run_dir,
-                )
+    total_tasks = len(pending_tasks)
+    log.info(f"Starting execution for {total_tasks} remaining runs with {num_workers} parallel workers on {device}")
+
+    if total_tasks > 0:
+        completed_count = 0
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=num_workers, mp_context=mp.get_context("spawn")
+        ) as executor:
+            future_to_key = {
+                executor.submit(_eval_worker_task, task_arg): (task_arg[0], task_arg[1], task_arg[2])
+                for task_arg in pending_tasks
+            }
+            for future in concurrent.futures.as_completed(future_to_key):
+                method, scenario, seed = future_to_key[future]
+                res, telem = future.result()
                 with open(jsonl_path, "a") as f:
                     f.write(json.dumps(res) + "\n")
 
@@ -392,10 +454,20 @@ def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate"):
                     header = not rounds_csv_path.exists()
                     df_t.to_csv(rounds_csv_path, mode="a", index=False, header=header)
 
-                completed_keys.add(key)
+                completed_count += 1
+                log.info(
+                    f"[{completed_count}/{total_tasks}] Completed: {method} | {scenario.upper()} | "
+                    f"Seed {seed} in {res.get('wall_time_s', 0):.1f}s"
+                )
 
     log.info(f"Completed all Step D evaluations in {run_dir}")
 
 
 if __name__ == "__main__":
-    run_step_d_evaluation()
+    parser = argparse.ArgumentParser(description="Run Step D 30-round benchmark evaluation")
+    parser.add_argument("--split", type=str, default="dev", help="Dataset split")
+    parser.add_argument("--run-id", type=str, default="step_d_evaluate", help="Run identifier")
+    parser.add_argument("--workers", type=int, default=4, help="Number of concurrent worker processes")
+    args = parser.parse_args()
+    run_step_d_evaluation(split=args.split, run_id=args.run_id, num_workers=args.workers)
+
