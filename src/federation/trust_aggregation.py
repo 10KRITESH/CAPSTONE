@@ -48,6 +48,7 @@ def aggregate_trust_class_aware(
     head_weight_power = agg_cfg.get("head_weight_power", 0.5)
     head_penalty_exponent = agg_cfg.get("head_penalty_exponent", 3.0)
     head_lockout_threshold = agg_cfg.get("head_lockout_threshold", 0.65)
+    use_head_salience = agg_cfg.get("use_head_salience", True)
 
     # 1. Calculate Body weights per client
     body_weights = []
@@ -70,7 +71,27 @@ def aggregate_trust_class_aware(
         norm_body_w = [1.0 / max(1, len(updates))] * len(updates)
 
     # 2. Calculate Head weights per client per class
-    # If disable_head_body_split is True, use scalar body weights for the head layers as well
+    # Pre-calculate client head update norms per class if head salience is enabled (Flaw 5)
+    client_head_saliences: list[dict[int, float]] = []
+    if use_head_salience and not disable_head_body_split:
+        for update in updates:
+            salience_dict: dict[int, float] = {}
+            head_w = update.get("head.weight")
+            head_b = update.get("head.bias")
+            if head_w is not None and head_w.ndim == 2:
+                row_sq = torch.sum(head_w.float() ** 2, dim=1)
+                if head_b is not None:
+                    row_sq = row_sq + (head_b.float() ** 2)
+                row_norms = torch.sqrt(row_sq + 1e-12)
+                total_head = torch.norm(row_norms) + 1e-8
+                normed = (row_norms / total_head).cpu().numpy()
+                for c_idx in range(num_classes):
+                    salience_dict[c_idx] = float(normed[c_idx])
+            else:
+                for c_idx in range(num_classes):
+                    salience_dict[c_idx] = 1.0 / max(1, num_classes)
+            client_head_saliences.append(salience_dict)
+
     head_class_weights = {c_idx: [] for c_idx in range(num_classes)}
     if disable_head_body_split:
         for c_idx in range(num_classes):
@@ -78,12 +99,13 @@ def aggregate_trust_class_aware(
     else:
         for c_idx, cls_name in enumerate(class_names):
             c_weights = []
-            for c_id, n_i in zip(client_ids, sample_counts):
+            for idx, (c_id, n_i) in enumerate(zip(client_ids, sample_counts)):
                 sf = 1.0 if disable_state_factor else state_factors.get(c_id, 1.0)
                 r_ic = reputation_table.get(c_id, {}).get(cls_name, 1.0)
                 # Configurable scaling with cutoff lockout for poisoned classes
                 r_effective = (r_ic ** head_penalty_exponent) if r_ic >= head_lockout_threshold else 0.0
-                w = (n_i ** head_weight_power) * r_effective * sf
+                salience = (client_head_saliences[idx][c_idx] + 0.05) if (use_head_salience and client_head_saliences) else 1.0
+                w = (n_i ** head_weight_power) * salience * r_effective * sf
                 c_weights.append(w)
 
             sum_w = sum(c_weights)

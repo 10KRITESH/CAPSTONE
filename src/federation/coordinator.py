@@ -248,7 +248,7 @@ class FLCoordinator:
         if self.aggregation_method in ("trust_class_aware", "detector_log_only"):
             # Multi-Signal Validation
             val_results = self.validator.validate_updates(
-                self.global_model, updates, client_ids, round_num
+                self.global_model, updates, client_ids, round_num, sample_counts=sample_counts
             )
             val_time_ms = sum(vr.validation_time_ms for vr in val_results)
 

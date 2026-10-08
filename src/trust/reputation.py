@@ -80,11 +80,20 @@ class PerClassReputationManager:
         """Update client's per-attack-class reputation vector using round validation result."""
         current_rep = self.get_reputation(client_id)
 
-        # 1. Cosine similarity quality: cos_sim in [-1, 1] mapped to [0, 1]
-        sim_q = max(0.0, min(1.0, (val_result.cosine_sim + 1.0) / 2.0))
+        # 1. Cosine similarity quality:
+        # Acute alignment (>= 0.0) maintains high trust; opposing vectors (< 0.0) degrade sharply.
+        if val_result.cosine_sim >= 0.0:
+            sim_q = 0.85 + 0.15 * min(1.0, val_result.cosine_sim)
+        else:
+            sim_q = max(0.0, 0.85 + 1.70 * val_result.cosine_sim)
 
-        # 2. Update norm quality: Penalize large Z-scores (|Z| > 2)
-        norm_q = max(0.0, min(1.0, 1.0 - min(1.0, abs(val_result.norm_z_score) / 4.0)))
+        # 2. Update norm quality: Penalize abnormally high Z-scores (|Z| > 2)
+        # Normal within-cohort variance on sample-scaled updates is |Z| <= 2.0.
+        abs_z = abs(val_result.norm_z_score)
+        if abs_z <= 2.0:
+            norm_q = 1.0
+        else:
+            norm_q = max(0.0, min(1.0, 1.0 - (abs_z - 2.0) / 4.0))
 
         updated_rep = {}
         for cls in self.class_names:
@@ -96,9 +105,9 @@ class PerClassReputationManager:
                 imp *= self.low_support_dampening
 
             if imp < 0:
-                perf_q = max(0.0, min(1.0, 0.5 + 6.0 * imp))
+                perf_q = max(0.0, min(1.0, 1.0 + 5.0 * imp))
             else:
-                perf_q = max(0.0, min(1.0, 0.5 + imp))
+                perf_q = 1.0
 
             # Quality composite score Q(i, c)
             q_score = (self.wp * perf_q) + (self.ws * sim_q) + (self.wn * norm_q)

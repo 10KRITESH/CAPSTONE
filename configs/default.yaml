@@ -111,6 +111,8 @@ trust:
     d2_z_thresh: 3.0                    # Peer-relative MAD Z-score threshold (absolute value)
     d3_calibrated_z_thresh: null        # Calibrated z threshold from calibration seeds
     d3_calibrated_impact_thresh: null   # Calibrated impact threshold from calibration seeds
+    mad_floor: 0.015                    # Robust scale floor preventing micro-noise from inflating peer Z
+    energy_share_gate: 0.04             # Minimum head energy share to confirm client trained on class
 
   state_machine:
     probation_threshold: 0.40           # Evidence E threshold for entering PROBATION
@@ -119,6 +121,7 @@ trust:
     k1_recovery_rounds: 3               # Clean rounds to recover QUARANTINED -> PROBATION
     k2_recovery_rounds: 3               # Clean rounds to recover PROBATION -> TRUSTED
     soft_containment: false             # D4 continuous state factor containment
+    warmup_rounds: 5                    # Warmup horizon preventing premature hard quarantine in early rounds
     state_factors:
       trusted: 1.0
       probation_floor: 0.20
@@ -140,6 +143,7 @@ trust:
     head_weight_power: 0.5              # Head sample count scaling power (0.5 = sqrt(n_i))
     head_penalty_exponent: 3.0          # Head reputation cubic scaling exponent
     head_lockout_threshold: 0.65        # Strict lockout cutoff: r_ic < 0.65 gets 0 weight
+    use_head_salience: true             # Class-specific head update energy weighting
 
   collusion:
     similarity_threshold: 0.88          # Pairwise cosine threshold for sub-cluster

@@ -578,3 +578,64 @@
 - **How it fits into overall flow:** Exposes executive-level diagnostic takeaways for Phase E3.
 - **Block-by-block explanation:**
   - Added Phase E3 Diagnostic Suite subsection under Section 2 summarizing per-signal AUCs, regression variance breakdown, aggregation control comparisons, and convergence speed.
+
+## Phase E4: Systematic Diagnostic Flaws & Aggregation Parity Resolution
+
+### `configs/default.yaml`
+- **Purpose:** Central single source of truth for all hyperparameters across the federated learning, trust evaluation, reputation, state machine, and aggregation engines.
+- **How it fits into overall flow:** Every class and script in the project reads from this configuration file, preventing hardcoded constants and guaranteeing reproducible experiments.
+- **Block-by-block explanation:**
+  - *`trust.detector.mad_floor` (0.015):* Sets a statistical floor on the Median Absolute Deviation (MAD) scale for peer-relative evaluation. In plain language, when all honest clients have nearly identical changes in performance on a calm round, the spread is near zero; dividing by near zero makes microscopic noise look like massive outliers. This floor guarantees that the minimum scale divisor is at least 0.015 ($1.4826 \times 0.015 \approx 0.022$), preventing false alarms.
+  - *`trust.detector.energy_share_gate` (0.04):* Sets the minimum gradient energy fraction required in the classifier head for class $c$ to confirm that the client actually trained on class $c$. If an honest client has zero samples of class $c$, its head energy share for class $c$ is near zero, suppressing false degradation flags.
+  - *`trust.state_machine.warmup_rounds` (5):* Sets an initial exploration window (rounds 1 through 5) during which clients cannot be transitioned into hard `QUARANTINED`. Because non-IID models are turbulent in early rounds, this prevents honest clients from being permanently locked out before models converge.
+  - *`trust.aggregation.use_head_salience` (true):* Enables class-specific gradient salience weighting during head aggregation, ensuring updates to class $c$'s classifier head are driven by clients with actual gradient mass for class $c$.
+
+### `src/trust/validator.py`
+- **Purpose:** Multi-signal update evaluation engine that inspects client updates against consensus reference directions, norm anomalies, and validation probe impacts.
+- **How it fits into overall flow:** Evaluates client parameter updates at the end of every federated round before reputations are updated, generating indicator flags for malicious or anomalous behaviors.
+- **Block-by-block explanation:**
+  - *`validate_updates(..., sample_counts=None)`:* Added `sample_counts` parameter. When provided, the validator divides each client's raw Euclidean update norm by $\sqrt{\max(0.1, n_i / \bar{n})}$. In plain language, large clients naturally move further because they take more mini-batch SGD steps. Normalizing by sample size breaks the strong correlation ($\rho = +0.818$) between dataset size and norm Z-scores, stopping the system from penalizing honest clients simply for having more data.
+  - *Head Gradient Energy Extraction:* Computes row norms of `head.weight` for each class $c$: $\|\Delta w_{\text{head}}[c, :]\|_2 / \|\Delta w_{\text{head}}\|_2$. In plain language, this checks how much the client actually adjusted the decision boundary for class $c$ during local training.
+  - *Peer-Relative MAD Floor in `peer_z_scores`:* Multiplies MAD by `max(mad, self.mad_floor)` when calculating peer Z-scores. This ensures peer Z-scores only reach extreme values ($Z < -3.0$) when a client's drop is genuinely anomalous relative to a meaningful baseline spread.
+  - *Adaptive Cohort Cosine Lower Bound:* Calculates cohort median cosine and cohort MAD, setting `cohort_cos_floor = min(cosine_threshold, med_cos - 2.5 * 1.4826 * max(mad_cos, 0.05))`. In plain language, instead of judging all clients against a rigid universal angle, this adapts to the natural angular spread of non-IID clients in that specific round.
+  - *Deployable D2 & D3 Support Energy Gate:* When checking `TARGET_CLASS_DEGRADATION_{cls}`, D2 requires that the drop is severe ($\Delta F_{1,c} < -0.08$, typical of active poisoning) OR that the client possesses active head energy for class $c$ ($\ge 0.04$). In plain language, an honest client with zero samples of class $c$ who experiences a tiny $-0.026$ drop is no longer falsely branded as an attacker.
+
+### `src/trust/reputation.py`
+- **Purpose:** Manages per-attack-class reputation vectors $R_t(i, c) \in [0, 1]$ using Exponentially Weighted Moving Averages (EWMA).
+- **How it fits into overall flow:** Converts multi-signal validation results into persistent trust scores per class, which determine whether a client can contribute to class-specific classifier heads.
+- **Block-by-block explanation:**
+  - *Non-Negative Cosine Quality Alignment (`sim_q`):* Maps non-negative cosine similarities ($\ge 0.0$) to $[0.85, 1.0]$. In plain language, any acute angle means the client is generally moving with the consensus trajectory. Only negative, opposing update vectors ($< 0.0$) suffer steep reputation penalties.
+  - *Sample-Scaled Norm Quality (`norm_q`):* Assigns full quality (`norm_q = 1.0`) for $|Z| \le 2.0$, and scales down linearly only when $|Z| > 2.0$. This prevents natural within-cohort variance from degrading client trust.
+  - *Neutral Performance Preservation (`perf_q`):* For non-negative validation impact ($\Delta F_1 \ge 0.0$), assigns `perf_q = 1.0`. In the previous formula, zero impact yielded $\text{perf\_q} = 0.50$, which systematically eroded clean client reputations from 1.0 down toward 0.70 over multiple rounds. The revised formula preserves high reputation ($> 0.95$) for honest clients throughout training.
+
+### `src/trust/state_machine.py`
+- **Purpose:** 3-tier security lifecycle coordinator (TRUSTED $\to$ PROBATION $\to$ QUARANTINED) managing client participation weights and shadow recovery.
+- **How it fits into overall flow:** Takes temporal evidence records $E_t(i)$ and determines whether a client participates fully, participates with reduced weight, or is completely excluded from aggregation.
+- **Block-by-block explanation:**
+  - *`warmup_rounds` in `__init__`:* Configures the initial warmup horizon (default 5 rounds) where model parameters are exploring representations.
+  - *Warmup Quarantine Hold in `update_state`:* If `round_num <= warmup_rounds`, clients with elevated evidence scores are held in `PROBATION` (`WARMUP_HOLD`) rather than transitioning into hard `QUARANTINED`.
+  - *Probation Escalation Evidence Requirement:* For standard 3-tier escalation from `PROBATION` due to consecutive bad rounds, requires both `bad >= 2` AND `E >= 0.60`. In plain language, this ensures a client cannot be permanently quarantined on low evidence ($E \approx 0.40$) merely due to two noisy rounds.
+
+### `src/federation/trust_aggregation.py`
+- **Purpose:** Aggregates client parameter updates into the new global model, separating shared representation body layers from class-specific classifier head rows.
+- **How it fits into overall flow:** Executes the core federated model update at the end of every round, enforcing state factor exclusions and per-class reputation lockouts.
+- **Block-by-block explanation:**
+  - *`use_head_salience` Parameter:* Checks if head update salience weighting is enabled.
+  - *Row-Wise Head Salience Calculation:* For each client update $u$, computes the relative L2 norm of each class row in `head.weight` and `head.bias`: $s_{i, c} = \|\Delta w_{\text{head}, c, i}\|_2 / \|\Delta w_{\text{head}, i}\|_2$.
+  - *Salience-Weighted Head Aggregation:* Multiplies each client's head aggregation weight for class $c$ by $(s_{i, c} + 0.05)$. In plain language, in a skewed federation where a giant client has 96% DDOS and 0% RECON, its salience for RECON is near zero. This prevents the giant client from overwriting RECON decision boundaries with DDOS gradients, directly solving the "Parity with FedAvg: An Illusion" issue where dropping large clients previously appeared to help minority performance.
+
+### `src/federation/coordinator.py`
+- **Purpose:** Master federated learning coordinator and simulator engine.
+- **How it fits into overall flow:** Orchestrates client training, gathers parameter updates, coordinates multi-signal validation, updates reputations and states, commits audit records, and invokes aggregation.
+- **Block-by-block explanation:**
+  - *Forwarding `sample_counts`:* Passes the list of client sample counts `sample_counts=sample_counts` into `self.validator.validate_updates(...)` on line 250, enabling sample-scaled norm normalization throughout live federation rounds.
+
+### `tests/test_variants.py`
+- **Purpose:** Unit test suite for detector variants, trust mechanisms, and audit protection guarantees.
+- **How it fits into overall flow:** Validates that all mathematical and behavioral guarantees hold across components and prevents regressions.
+- **Block-by-block explanation:**
+  - *`test_sample_scaled_norm_discrimination`:* Verifies that when sample counts differ by 100x ($100{,}000$ vs $1{,}000$), sample-scaled Z-scores remain stable and do not falsely flag large honest clients as extreme outliers.
+  - *`test_head_energy_gate_suppresses_zero_sample_drop`:* Verifies that an honest client with zero update energy on class 4 (RECON) is not flagged for target class degradation under D2.
+  - *`test_mad_floor_prevents_zero_variance_blowup`:* Verifies that the MAD scale floor prevents peer Z-scores from blowing up under near-zero peer variance.
+  - *`test_state_machine_warmup_horizon`:* Verifies that clients with high evidence ($E = 0.85$) are held in `PROBATION` during rounds 1..5 and only escalate to `QUARANTINED` after round 5.
+  - *`test_head_salience_weighting`:* Verifies that a client with active gradient energy on class 4 drives class 4 head updates even when another client has 10x larger total sample volume on class 0.

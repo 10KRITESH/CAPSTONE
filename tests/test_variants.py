@@ -266,6 +266,123 @@ class TestDetectorVariants(unittest.TestCase):
             diff = torch.max(torch.abs(dict_fedavg[k] - dict_logonly[k])).item()
             self.assertLess(diff, 1e-6, f"Layer {k} differed between detector_log_only and fedavg by {diff} >= 1e-6!")
 
+    def test_sample_scaled_norm_discrimination(self):
+        """Flaw 2: Sample-scaled norms normalize update rates by sqrt(n_i), preventing dataset-size bias."""
+        validator = UpdateValidator(
+            self.val_loader,
+            self.class_names,
+            self.device,
+            detector_variant="D2",
+        )
+        # Client 0 has 100,000 samples and large raw update; Client 1 has 1,000 samples and smaller raw update
+        u0 = {k: torch.randn_like(v) * 0.10 for k, v in self.global_model.state_dict().items()}
+        u1 = {k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()}
+        u2 = {k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()}
+        updates = [u0, u1, u2]
+        c_ids = [0, 1, 2]
+        sample_counts = [100000, 1000, 1000]
+
+        res = validator.validate_updates(
+            self.global_model, updates, c_ids, round_num=1, sample_counts=sample_counts
+        )
+        self.assertEqual(len(res), 3)
+        # Verify raw norm is preserved in norm_val
+        self.assertGreater(res[0].norm_val, res[1].norm_val)
+        # But sample-scaled norm_z_score does not explode into an extreme outlier
+        self.assertLess(abs(res[0].norm_z_score), 15.0)
+
+    def test_head_energy_gate_suppresses_zero_sample_drop(self):
+        """Flaw 1: Deployable D2 suppresses TARGET_CLASS_DEGRADATION when client has 0 head gradient energy."""
+        validator = UpdateValidator(
+            self.val_loader,
+            self.class_names,
+            self.device,
+            detector_variant="D2",
+            d2_z_thresh=2.0,
+            energy_share_gate=0.04,
+        )
+        # Client 0 has zero gradient update on class 4 (RECON)
+        u0 = {k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()}
+        u0["head.weight"][4, :] = 0.0
+        u0["head.bias"][4] = 0.0
+
+        u1 = {k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()}
+        u2 = {k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()}
+
+        results = validator.validate_updates(self.global_model, [u0, u1, u2], [0, 1, 2], round_num=1)
+        # Even under Dirichlet non-IID shifts, client 0 should not get flagged for class 4 if energy is 0
+        c0_flags = results[0].suspicious_flags
+        self.assertNotIn("TARGET_CLASS_DEGRADATION_RECON", c0_flags)
+
+    def test_mad_floor_prevents_zero_variance_blowup(self):
+        """Flaw 1: MAD floor of 0.015 prevents peer Z-score explosion when peer deviations are near zero."""
+        validator = UpdateValidator(
+            self.val_loader,
+            self.class_names,
+            self.device,
+            detector_variant="D2",
+            d2_z_thresh=3.0,
+            mad_floor=0.015,
+        )
+        self.assertEqual(validator.mad_floor, 0.015)
+
+    def test_state_machine_warmup_horizon(self):
+        """Flaw 4: State machine holds high-evidence clients in PROBATION during warmup horizon (rounds 1..5)."""
+        sm = ClientStateMachine(
+            probation_threshold=0.40,
+            quarantine_threshold=0.70,
+            probation_consecutive_bad_threshold=2,
+            warmup_rounds=5,
+        )
+        ev_rec = EvidenceRecord(
+            client_id=0,
+            evidence_score=0.85,  # Exceeds quarantine threshold
+            consecutive_bad=3,
+            consecutive_clean=0,
+        )
+        # During warmup (round 2 <= 5) -> client must be held in PROBATION, not QUARANTINED
+        state, changed, reason = sm.update_state(0, ev_rec, round_num=2)
+        self.assertEqual(state, ClientState.PROBATION)
+        self.assertIn("WARMUP_HOLD", reason)
+
+        # After warmup (round 6 > 5) -> client escalates to QUARANTINED
+        state_post, changed_post, reason_post = sm.update_state(0, ev_rec, round_num=6)
+        self.assertEqual(state_post, ClientState.QUARANTINED)
+
+    def test_head_salience_weighting(self):
+        """Flaw 5: Head salience weights class aggregation by active gradient energy, preventing majority bias."""
+        from src.federation.trust_aggregation import aggregate_trust_class_aware
+
+        # Create two updates:
+        # Client 0 trained only on class 0 (DDOS)
+        # Client 1 trained on class 4 (RECON)
+        u0 = {k: torch.zeros_like(v) for k, v in self.global_model.state_dict().items()}
+        u0["head.weight"][0, :] = torch.ones(64) * 0.10
+
+        u1 = {k: torch.zeros_like(v) for k, v in self.global_model.state_dict().items()}
+        u1["head.weight"][4, :] = torch.ones(64) * 0.10
+
+        updates = [u0, u1]
+        sample_counts = [10000, 1000] # Client 0 has 10x more samples!
+        client_ids = [0, 1]
+        rep_table = {0: {cls: 1.0 for cls in self.class_names}, 1: {cls: 1.0 for cls in self.class_names}}
+        state_factors = {0: 1.0, 1: 1.0}
+
+        # Run aggregation with head salience enabled
+        agg_state, _ = aggregate_trust_class_aware(
+            self.global_model,
+            updates,
+            sample_counts,
+            client_ids,
+            rep_table,
+            state_factors,
+            self.class_names,
+            trust_config={"trust": {"aggregation": {"use_head_salience": True, "head_weight_power": 0.5}}},
+        )
+        # For class 4 (RECON), Client 1 has high salience, so class 4 head weights must be updated by u1
+        delta_head_4 = agg_state["head.weight"][4, :] - self.global_model.state_dict()["head.weight"][4, :]
+        self.assertGreater(torch.norm(delta_head_4).item(), 1e-4)
+
 
 class TestRootResultsProtection(unittest.TestCase):
     def test_smoke_cannot_overwrite_evidence_without_force(self):

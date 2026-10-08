@@ -65,6 +65,8 @@ class UpdateValidator:
         d3_calibrated_z_thresh: float | None = None,
         d3_calibrated_impact_thresh: float | None = None,
         oracle_client_support: dict[str | int, dict[str, int]] | None = None,
+        mad_floor: float | None = None,
+        energy_share_gate: float | None = None,
     ) -> None:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
@@ -91,6 +93,8 @@ class UpdateValidator:
         self.d3_calibrated_z_thresh = d3_calibrated_z_thresh if d3_calibrated_z_thresh is not None else det_cfg.get("d3_calibrated_z_thresh", None)
         self.d3_calibrated_impact_thresh = d3_calibrated_impact_thresh if d3_calibrated_impact_thresh is not None else det_cfg.get("d3_calibrated_impact_thresh", None)
         self.oracle_client_support = oracle_client_support
+        self.mad_floor = mad_floor if mad_floor is not None else det_cfg.get("mad_floor", 0.015)
+        self.energy_share_gate = energy_share_gate if energy_share_gate is not None else det_cfg.get("energy_share_gate", 0.04)
 
         self.collusion_detector = SubClusterCollusionDetector(
             similarity_threshold=col_cfg.get("similarity_threshold", 0.88),
@@ -105,6 +109,7 @@ class UpdateValidator:
         client_updates: list[dict[str, torch.Tensor]],
         client_ids: list[int | str],
         round_num: int,
+        sample_counts: list[int] | None = None,
     ) -> list[ValidationResult]:
         import time
         t0 = time.time()
@@ -131,11 +136,19 @@ class UpdateValidator:
             torch.cuda.synchronize()
         t_col_ms = (time.time() - t_col_start) * 1000.0
 
-        # 3. Calculate L2 norms for all client updates
+        # 3. Calculate L2 norms and sample-scaled norms (Flaw 2: breaks dataset-size confound)
         if is_cuda:
             torch.cuda.synchronize()
         t_mad_start = time.time()
-        norms = [float(u.norm().item()) for u in flat_updates]
+        raw_norms = [float(u.norm().item()) for u in flat_updates]
+        if sample_counts is not None and len(sample_counts) == len(client_updates) and sum(sample_counts) > 0:
+            mean_n = float(np.mean(sample_counts))
+            scaled_norms = [
+                float(norm / np.sqrt(max(0.1, n_i / max(1.0, mean_n))))
+                for norm, n_i in zip(raw_norms, sample_counts)
+            ]
+        else:
+            scaled_norms = raw_norms
         if is_cuda:
             torch.cuda.synchronize()
         t_mad_ms = (time.time() - t_mad_start) * 1000.0
@@ -148,11 +161,26 @@ class UpdateValidator:
         base_macro_f1 = base_val_metrics["macro_f1"]
         base_class_f1 = {cls: m["f1"] for cls, m in base_val_metrics["per_class"].items()}
 
-        # 5. Evaluate semantic validation impacts for each candidate client update
+        # 5. Evaluate semantic validation impacts & head gradient energy per client
         candidate_evals = []
         for idx, (update, client_id, flat_u) in enumerate(zip(client_updates, client_ids, flat_updates)):
             cos_sim = compute_cosine_similarity(flat_u, ref_flat)
-            norm_val, z_score = compute_robust_norm_score(norms, idx)
+            # Sample-scaled norm Z-score measures genuine gradient anomalies rather than sample counts
+            _, z_score = compute_robust_norm_score(scaled_norms, idx)
+
+            # Compute classifier head gradient energy distribution across classes (Flaw 1)
+            # Privacy-preserving: directly measures whether client's SGD steps updated class c's boundary
+            head_w = update.get("head.weight")
+            head_b = update.get("head.bias")
+            if head_w is not None and head_w.ndim == 2:
+                row_sq = torch.sum(head_w.float() ** 2, dim=1)
+                if head_b is not None:
+                    row_sq = row_sq + (head_b.float() ** 2)
+                row_norms = torch.sqrt(row_sq + 1e-12)
+                total_head = torch.norm(row_norms) + 1e-8
+                head_energy = (row_norms / total_head).cpu().numpy()
+            else:
+                head_energy = np.ones(len(self.class_names)) / max(1, len(self.class_names))
 
             probe_scale = 1.0 / max(1, len(client_updates))
             candidate_model = IDS_MLP(**global_model.config).to(self.device)
@@ -173,30 +201,35 @@ class UpdateValidator:
 
             candidate_evals.append({
                 "client_id": client_id,
-                "norm_val": norm_val,
+                "raw_norm_val": raw_norms[idx],
                 "norm_z_score": z_score,
                 "cosine_sim": cos_sim,
+                "head_energy": head_energy,
                 "global_impact": global_impact,
                 "per_class_impact": per_class_impact,
                 "collusion_penalty": c_penalty,
             })
 
-        # Calculate peer-relative MAD z-scores per class across candidate clients
+        # Calculate peer-relative MAD z-scores per class with robust scale floor (Flaw 1)
         peer_z_scores_by_client: dict[int | str, dict[str, float]] = {c_id: {} for c_id in client_ids}
         for cls in self.class_names:
             cls_impacts = np.array([ce["per_class_impact"][cls] for ce in candidate_evals], dtype=float)
             med = float(np.median(cls_impacts))
             abs_dev = np.abs(cls_impacts - med)
             mad = float(np.median(abs_dev))
-            scale = 1.4826 * mad
+            # MAD scale floor prevents micro-fluctuations in calm rounds from blowing up peer Z
+            scale = 1.4826 * max(mad, self.mad_floor)
             for ce in candidate_evals:
                 cid = ce["client_id"]
                 imp = ce["per_class_impact"][cls]
-                if scale < 1e-5:
-                    peer_z = 0.0
-                else:
-                    peer_z = float((imp - med) / scale)
+                peer_z = float((imp - med) / scale)
                 peer_z_scores_by_client[cid][cls] = peer_z
+
+        # Adaptive cohort-relative cosine lower bound (Flaw 3: accounts for non-IID angular spread)
+        cohort_cos_arr = np.array([ce["cosine_sim"] for ce in candidate_evals], dtype=float)
+        med_cos = float(np.median(cohort_cos_arr))
+        mad_cos = float(np.median(np.abs(cohort_cos_arr - med_cos)))
+        cohort_cos_floor = min(self.cosine_threshold, med_cos - 2.5 * 1.4826 * max(mad_cos, 0.05))
 
         results: list[ValidationResult] = []
         for ce in candidate_evals:
@@ -210,7 +243,7 @@ class UpdateValidator:
 
             # Flag suspicious indicators
             flags = []
-            if cos_sim < self.cosine_threshold:
+            if cos_sim < cohort_cos_floor:
                 flags.append("LOW_COSINE_SIMILARITY")
             if (abs(z_score) > self.norm_z_extreme) or (abs(z_score) > self.norm_z_anomaly and (cos_sim < 0.0 or global_impact < -0.03)):
                 flags.append("ABNORMAL_UPDATE_NORM")
@@ -237,25 +270,35 @@ class UpdateValidator:
                         flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
                 elif self.detector_variant == "D2":
-                    # Peer-relative scoring (deployable)
+                    # Peer-relative scoring with support energy gate (deployable)
                     z = client_peer_z[cls]
+                    c_idx = self.class_names.index(cls) if cls in self.class_names else 0
+                    energy_share = ce["head_energy"][c_idx]
+                    is_severe_drop = (imp < -0.08)
+                    has_energy = (energy_share >= self.energy_share_gate)
                     if imp < self.target_class_degradation_thresh and z < -self.d2_z_thresh:
-                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+                        if is_severe_drop or has_energy:
+                            flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
                 elif self.detector_variant == "D3":
-                    # Calibrated peer-relative scoring
+                    # Calibrated peer-relative scoring with support energy gate
                     z = client_peer_z[cls]
                     z_thresh = self.d3_calibrated_z_thresh if self.d3_calibrated_z_thresh is not None else self.d2_z_thresh
                     imp_thresh = self.d3_calibrated_impact_thresh if self.d3_calibrated_impact_thresh is not None else self.target_class_degradation_thresh
+                    c_idx = self.class_names.index(cls) if cls in self.class_names else 0
+                    energy_share = ce["head_energy"][c_idx]
+                    is_severe_drop = (imp < -0.08)
+                    has_energy = (energy_share >= self.energy_share_gate)
                     if imp < imp_thresh and z < -z_thresh:
-                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+                        if is_severe_drop or has_energy:
+                            flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))
 
             res = ValidationResult(
                 client_id=client_id,
                 round_num=round_num,
-                norm_val=ce["norm_val"],
+                norm_val=ce["raw_norm_val"],
                 norm_z_score=z_score,
                 cosine_sim=cos_sim,
                 global_f1_impact=global_impact,

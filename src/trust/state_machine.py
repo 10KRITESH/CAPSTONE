@@ -53,6 +53,7 @@ class ClientStateMachine:
         state_factors: Optional[dict[str, float]] = None,
         config: Optional[dict] = None,
         soft_containment: bool = False,
+        warmup_rounds: int = 0,
     ) -> None:
         cfg = config or {}
         sm_cfg = cfg.get("trust", {}).get("state_machine", {})
@@ -63,6 +64,7 @@ class ClientStateMachine:
         self.k1_recovery_rounds = sm_cfg.get("k1_recovery_rounds", k1_recovery_rounds)
         self.k2_recovery_rounds = sm_cfg.get("k2_recovery_rounds", k2_recovery_rounds)
         self.soft_containment = bool(soft_containment) if soft_containment is not None else bool(sm_cfg.get("soft_containment", False))
+        self.warmup_rounds = sm_cfg.get("warmup_rounds", warmup_rounds)
         
         default_sf = state_factors or {"trusted": 1.0, "probation_floor": 0.20, "quarantined": 0.0}
         self.state_factors_cfg = sm_cfg.get("state_factors", default_sf)
@@ -125,20 +127,33 @@ class ClientStateMachine:
 
         new_state = current_state
         reason = "NO_CHANGE"
+        is_warmup = (round_num <= self.warmup_rounds)
 
         # 1. Check demotion / escalation triggers
         if self.soft_containment:
             # D4: Hard quarantine ONLY at E >= quarantine_threshold
             if E >= self.quarantine_threshold:
-                new_state = ClientState.QUARANTINED
-                reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}"
+                if is_warmup:
+                    new_state = ClientState.PROBATION
+                    reason = f"WARMUP_HOLD_E={E:.2f}"
+                else:
+                    new_state = ClientState.QUARANTINED
+                    reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}"
             elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
                 new_state = ClientState.PROBATION
                 reason = f"EVIDENCE_ELEVATED_E={E:.2f}"
         else:
-            if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= self.probation_consecutive_bad_threshold):
-                new_state = ClientState.QUARANTINED
-                reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
+            escalate_to_quarantine = (
+                E >= self.quarantine_threshold
+                or (current_state == ClientState.PROBATION and bad >= self.probation_consecutive_bad_threshold and E >= 0.60)
+            )
+            if escalate_to_quarantine:
+                if is_warmup:
+                    new_state = ClientState.PROBATION
+                    reason = f"WARMUP_HOLD_E={E:.2f}"
+                else:
+                    new_state = ClientState.QUARANTINED
+                    reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
             elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
                 new_state = ClientState.PROBATION
                 reason = f"EVIDENCE_ELEVATED_E={E:.2f}"
