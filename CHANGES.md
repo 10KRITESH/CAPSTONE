@@ -214,4 +214,61 @@
 - **Block-by-block explanation:**
   - Added `results/runs/` to ignore per-run transient database and ledger files.
 
+## Phase 1 Step B: Resumable Matrix Harness, Statistical Aggregation & Telemetry
+
+### `src/experiments/harness.py`
+- **Purpose:** Core resumable experimental harness orchestrating multi-seed, multi-method, multi-attack federated simulations.
+- **How it fits into overall flow:** Replaces ad-hoc experiment scripts with a standardized execution engine that writes incremental JSONL records (`runs.jsonl`) and round-by-round client telemetry (`client_rounds.csv`).
+- **Block-by-block explanation:**
+  - `AttackerSelector`:
+    - `select_random(num_malicious, attacker_seed)`: Draws deterministic malicious client IDs using seeded PRNG.
+    - `select_stratified(target_band, num_malicious, seed)`: Evaluates combinations of clients to select a malicious set whose combined source-class (RECON) training sample share falls into the desired interval (e.g. 5–15%).
+  - `get_attack_spec(attack_name, malicious_ids)`:
+    - Declares explicit attack objectives (`targeted` vs. `untargeted`) and sets appropriate headline evaluation metrics (`attack_success_rate` for targeted label-flip/collusion, `macro_f1_drop` for untargeted poisoning).
+  - `ExperimentHarness`:
+    - Checks `completed_keys` before each run, skipping already completed runs to guarantee crash-proof resumability.
+    - Captures Core-class Macro-F1 (averaging over classes 0–5, excluding Dirichlet-starved classes 6 WEBAPP and 7 MALWARE).
+    - Tracks security and containment metrics: Attacker Detection Rate, Time-to-Detection (round of first containment transition), Quarantine Precision ($\frac{\text{TP}}{\text{TP}+\text{FP}}$), Honest False-Positive Rate (client-level and data-weighted), and Excluded Training Samples per round.
+    - Immediately appends completed runs to `runs.jsonl` and round telemetry to `client_rounds.csv`.
+
+### `src/experiments/aggregate_results.py`
+- **Purpose:** Statistical aggregator, hypothesis testing engine, and publication report generator.
+- **How it fits into overall flow:** Ingests `runs.jsonl` produced by `harness.py` to compute statistical confidence intervals, paired hypothesis tests, win/tie/loss tables, and markdown summaries (`RESULTS.md`).
+- **Block-by-block explanation:**
+  - `bootstrap_ci(data, n_boot=5000, ci=0.95)`: Computes empirical 95% bootstrap confidence intervals for performance metrics without assuming normal distribution.
+  - `paired_statistical_test(diffs)`: Executes paired Wilcoxon signed-rank test (or paired 1-sample t-test for small sample counts) across matched random seeds.
+  - `holm_bonferroni(p_values)`: Applies Holm-Bonferroni step-down correction to control family-wise error rate across multiple attack scenario comparisons.
+  - `generate_paired_clean_attacked_table(df_runs)`: Pairs each attacked run of the proposed method with its clean control sharing identical PRNG seeds to measure true attack degradation and defense preservation.
+  - `analyze_run_results(run_dir)`: Generates comparison plots in `plots/` and formats markdown tables into `RESULTS.md`.
+
+### `src/experiments/run_smoke_matrix.py`
+- **Purpose:** Executable CLI entry point for launching multi-seed matrix simulations.
+- **How it fits into overall flow:** Provides a single command-line interface to launch experiments and immediately trigger statistical aggregation upon completion.
+- **Block-by-block explanation:**
+  - Parses `--seeds`, `--rounds`, `--methods`, `--attacks`, and `--attacker-mode`.
+  - Instantiates `ExperimentHarness` and invokes `harness.run_matrix()`.
+  - Automatically invokes `analyze_run_results()` to display the paired summary table and emit `RESULTS.md`.
+
+### `src/trust/validator.py` (Timing Breakdown Enhancements)
+- **Purpose:** Multi-signal update validator evaluating directional cosine, norm dispersion (MAD), and validation probe deltas.
+- **How it fits into overall flow:** Evaluates client model updates and logs fine-grained computational overhead.
+- **Block-by-block explanation:**
+  - Added explicit CUDA synchronization (`torch.cuda.synchronize()`) before and after cosine calculation, MAD Z-score dispersion, sub-cluster collusion detection, and validation probes.
+  - Stored `last_timing_breakdown` dict on `self` so the coordinator can export component-wise latency without modifying validator detection logic.
+
+### `src/federation/coordinator.py` (Ledger Overhead & Exclusion Tracking)
+- **Purpose:** Central coordinator orchestrating local client training, validation probes, and aggregation.
+- **How it fits into overall flow:** Coordinates round execution and collects round-level summary metrics.
+- **Block-by-block explanation:**
+  - Added `torch.cuda.synchronize()` around blockchain ledger and SQLite audit transaction commits to measure exact on-chain governance overhead (`ledger_ms`).
+  - Added `excluded_clients` and `excluded_samples` tracking to `round_summary`.
+
+### `tests/test_harness.py`
+- **Purpose:** Automated unit tests for experiment harness and statistical aggregator.
+- **How it fits into overall flow:** Validates attacker selector logic, bootstrap confidence intervals, and hypothesis tests.
+- **Block-by-block explanation:**
+  - Tests deterministic PRNG client selection and stratified sample share band matching.
+  - Tests bootstrap confidence intervals and Holm-Bonferroni adjusted p-values.
+
+
 
