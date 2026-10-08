@@ -470,3 +470,20 @@
     4. Either CI straddling zero $\to$ asserts `gate='**FAIL**'`.
   - `test_matrix_recompute_equality`: Loads the actual `phase_e1_smoke` run records, extracts client lists with `extract_client_outcomes`, recomputes all matrix columns directly from the four client lists across seeds, and asserts exact numerical equality ($< 10^{-6}$) with the matrix values.
   - `test_soft_containment_sf_clipping`: Instantiates `ClientStateMachine` with `soft_containment=True` and evaluates $SF(E)$ across $E \in \{0.0, 0.2, 0.4, 0.55, 0.7, 0.9\}$ as well as extreme out-of-bound values ($-0.5$, $1.5$). Asserts that $SF \in [0.0, 1.0]$ always, and documents that without clipping, $SF(0.9)$ would have been $-0.6667$, which would have inverted gradient updates.
+
+## Phase E2: Targeted Attack Potency, Calibration & Diagnostics
+
+### Carry-Over Fixes (C1, C2)
+
+#### `src/experiments/aggregate_results.py`
+- **Purpose:** Centralized experiment analysis, aggregation, statistical hypothesis testing, and markdown report generation.
+- **How it fits into overall flow:** Reads `runs.jsonl` produced by benchmarks, calculates bootstrap metrics, paired deltas, and defense comparison matrices.
+- **Block-by-block explanation:**
+  - *Quarantine Precision Handling (C1):* In `extract_client_outcomes`, changed default precision when zero clients are quarantined from `1.0` to `None`. In `analyze_run_results`, runs where `quar_precision` is `None` are excluded from the arithmetic mean. If no runs had quarantines, precision is reported as `n/a (k runs)`. When valid runs exist, both the arithmetic mean and pooled precision (`total attackers quarantined / total clients quarantined`) are displayed. In Section 7 appendix, undefined precision is formatted as `n/a`.
+  - *Potency Table Telemetry (C2):* In `analyze_run_results`, added explicit columns `Partition(s)` and `Distinct Atk Sets` to the Step A potency table. In details, labeled realized shares explicitly as `Realized RECON Share per Config`.
+
+#### `tests/test_phase_e1b.py`
+- **Purpose:** Regression test suite for Phase E1b and statistical plumbing.
+- **How it fits into overall flow:** Asserts correctness of gate evaluation, matrix column recomputations, and soft containment bounds.
+- **Block-by-block explanation:**
+  - *Matrix Precision Recomputation:* Updated `test_matrix_recompute_equality` to filter for non-null `quar_precision` values and assert equality against the updated `extract_client_outcomes` output.

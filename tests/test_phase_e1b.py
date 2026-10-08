@@ -130,20 +130,26 @@ def test_matrix_recompute_equality():
                 len(r["attackers_prob_clients"]) / len(r["attacker_ids"])
                 for r in m_atk
             ]
-            per_seed_prec = [
+            valid_per_seed_prec = [
                 len(r["attackers_quar_clients"]) / (len(r["honest_quar_clients"]) + len(r["attackers_quar_clients"]))
-                if (len(r["honest_quar_clients"]) + len(r["attackers_quar_clients"])) > 0
-                else 1.0
                 for r in m_atk
+                if (len(r["honest_quar_clients"]) + len(r["attackers_quar_clients"])) > 0
             ]
+            tot_atks_quar = sum(len(r["attackers_quar_clients"]) for r in m_atk)
+            tot_all_quar = sum(len(r["honest_quar_clients"]) + len(r["attackers_quar_clients"]) for r in m_atk)
+            pooled_prec = (tot_atks_quar / tot_all_quar) if tot_all_quar > 0 else None
 
             matrix_atk_q = np.mean([r["attacker_det_quar"] for r in m_atk])
             matrix_atk_p = np.mean([r["attacker_det_prob"] for r in m_atk])
-            matrix_prec = np.mean([r["quar_precision"] for r in m_atk])
+            matrix_valid_precs = [r["quar_precision"] for r in m_atk if r["quar_precision"] is not None]
 
             np.testing.assert_allclose(matrix_atk_q, np.mean(per_seed_atk_q), rtol=1e-6)
             np.testing.assert_allclose(matrix_atk_p, np.mean(per_seed_atk_p), rtol=1e-6)
-            np.testing.assert_allclose(matrix_prec, np.mean(per_seed_prec), rtol=1e-6)
+
+            if valid_per_seed_prec:
+                np.testing.assert_allclose(np.mean(matrix_valid_precs), np.mean(valid_per_seed_prec), rtol=1e-6)
+            else:
+                assert len(matrix_valid_precs) == 0
 
 
 def test_soft_containment_sf_clipping():

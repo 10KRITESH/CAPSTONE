@@ -220,7 +220,7 @@ def extract_client_outcomes(rec: dict, num_total_clients: int = 10) -> dict:
     attacker_det_quar = (len(a_quar) / num_atks) if num_atks > 0 else 0.0
     attacker_det_prob = (len(a_prob) / num_atks) if num_atks > 0 else 0.0
     tot_quar = len(h_quar) + len(a_quar)
-    quar_precision = (len(a_quar) / tot_quar) if tot_quar > 0 else 1.0
+    quar_precision = (len(a_quar) / tot_quar) if tot_quar > 0 else None
 
     return {
         "honest_prob_clients": h_prob,
@@ -531,11 +531,11 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
             lines.append("## 2. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, Paired Controls)")
             lines.append(f"*Source Run for Potency Data:* `{potency_source_run}`")
             lines.append(
-                "| Scenario / Band | Realized RECON Share | Paired RECON F1 Drop [95% CI] | "
-                "Paired ASR Delta [95% CI] | ASR_ok | F1_ok | Gate Status |"
+                "| Scenario / Band | Partition(s) | Distinct Atk Sets | Realized RECON Share | "
+                "Paired RECON F1 Drop [95% CI] | Paired ASR Delta [95% CI] | ASR_ok | F1_ok | Gate Status |"
             )
             lines.append(
-                "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |"
+                "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
             )
             for pr in pot_rows:
                 # Check for zero width CI
@@ -556,8 +556,10 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
 
                 rf_d = f"{pr['paired_recon_drop_m']*100:+.1f}% [{pr['paired_recon_drop_ci'][0]*100:.1f}%, {pr['paired_recon_drop_ci'][1]*100:.1f}%]"
                 asr_d = f"{pr['paired_asr_delta_m']*100:+.1f}% [{pr['paired_asr_delta_ci'][0]*100:.1f}%, {pr['paired_asr_delta_ci'][1]*100:.1f}%]"
+                parts_str = f"`{pr['partition_seeds']}`"
+                sets_str = f"{pr['num_distinct_attacker_sets']}"
 
-                lines.append(f"| `{pr['scenario']}`{nominal_label} | {rec_s} | {rf_d} | {asr_d} | {pr['asr_ok']} | {pr['f1_ok']} | {pr['gate_status']} |")
+                lines.append(f"| `{pr['scenario']}`{nominal_label} | {parts_str} | {sets_str} | {rec_s} | {rf_d} | {asr_d} | {pr['asr_ok']} | {pr['f1_ok']} | {pr['gate_status']} |")
 
             lines.append("")
             lines.append("### Potency Band Execution Details:")
@@ -566,7 +568,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
                 lines.append(f"  - Rounds: `{pr.get('rounds', 10)}` | Partition Seeds: `{pr['partition_seeds']}` | Train Seeds: `{pr['train_seeds']}`")
                 lines.append(f"  - Independent Clusters: `{pr['n_clusters']}` | Distinct Attacker Sets ({pr['num_distinct_attacker_sets']}): `{pr['distinct_attacker_sets']}`")
                 cfg_shares = [f"seed {c['train_seed']}: {c['attacker_ids']} (sample={c['sample_share']*100:.1f}%, recon={c['recon_share']*100:.1f}%)" for c in pr["config_details"]]
-                lines.append(f"  - Realized Shares: {'; '.join(cfg_shares)}")
+                lines.append(f"  - Realized RECON Share per Config: {'; '.join(cfg_shares)}")
             lines.append("")
 
     # Section 3: Step B Clean-Run False-Positive Progression
@@ -623,13 +625,26 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         a_asr = m_atk["asr"].mean() * 100 if not m_atk.empty else 0.0
         a_det_q = m_atk["attacker_det_quar"].mean() * 100 if not m_atk.empty else 0.0
         a_det_p = m_atk["attacker_det_prob"].mean() * 100 if not m_atk.empty else 0.0
-        q_prec = m_atk["quar_precision"].mean() * 100 if not m_atk.empty else 100.0
+
+        valid_precs = [r["quar_precision"] for _, r in m_atk.iterrows() if pd.notna(r["quar_precision"])]
+        tot_atks_quar = sum(len(r["attackers_quar_clients"]) for _, r in m_atk.iterrows())
+        tot_all_quar = sum(len(r["honest_quar_clients"]) + len(r["attackers_quar_clients"]) for _, r in m_atk.iterrows())
+        pooled_prec = (tot_atks_quar / tot_all_quar * 100.0) if tot_all_quar > 0 else None
+
+        if len(valid_precs) == 0:
+            q_prec_str = f"n/a ({len(m_atk)} runs)"
+        else:
+            m_prec = float(np.mean(valid_precs)) * 100.0
+            if pooled_prec is not None:
+                q_prec_str = f"{m_prec:.1f}% (pooled: {pooled_prec:.1f}%)"
+            else:
+                q_prec_str = f"{m_prec:.1f}%"
 
         m_type = "ORACLE" if "d1" in m else ("Baseline" if m in ["fedavg", "median", "trimmed_mean", "krum", "detector_log_only"] else "Deployable")
 
         lines.append(
             f"| `{m}` | {m_type} | {c_f1_str} | {a_f1_str} | {c_cont_fpr:.1f}% | {c_quar_fpr:.1f}% | "
-            f"{c_fpr_d:.1f}% | {a_rf1:.1f}% | {a_asr:.1f}% | {a_det_q:.1f}% | {a_det_p:.1f}% | {q_prec:.1f}% |"
+            f"{c_fpr_d:.1f}% | {a_rf1:.1f}% | {a_asr:.1f}% | {a_det_q:.1f}% | {a_det_p:.1f}% | {q_prec_str} |"
         )
     lines.append("")
     lines.append(f"*Note:* Undefended FedAvg clean controls: Macro-F1 = {clean_fedavg_f1*100:.2f}%, Clean Control ASR = {clean_fedavg_asr*100:.2f}%.{unreliable_footnote}")
@@ -716,10 +731,12 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         aq = r.get("attackers_quar_clients", [])
         num_atks = len(r.get("attacker_ids", []))
         aq_str = f"{len(aq)}/{num_atks}" if num_atks > 0 else "0/0"
+        qp = r.get("quar_precision")
+        qp_str = f"{qp*100:.1f}%" if pd.notna(qp) else "n/a"
         lines.append(
             f"| {r['train_seed']} | `{r['method']}` | `{r['scenario']}` | {r['macro_f1']*100:.2f}% | "
             f"{r['core_macro_f1']*100:.2f}% | {r.get('recon_f1', 0.0)*100:.2f}% | {r.get('asr', 0.0)*100:.2f}% | "
-            f"`{hp}` | `{hq}` | `{ap}` | {aq_str} | {r['quar_precision']*100:.1f}% | {r.get('wall_time_s', 0.0):.1f}s |"
+            f"`{hp}` | `{hq}` | `{ap}` | {aq_str} | {qp_str} | {r.get('wall_time_s', 0.0):.1f}s |"
         )
     lines.append("")
 
