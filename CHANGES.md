@@ -649,3 +649,11 @@
   - *Head Salience Aggregation:* Under `fixed`, feeds head salience weights to `aggregate_trust_class_aware` to prevent majority class updates from drowning out minority class boundaries.
   - *Telemetry & Summary Extraction:* Logs per-client, per-round norms, cosines, probe impacts, states, and reputations to CSV, computes bootstrap confidence intervals across runs, and prints the summary matrix.
 
+### `kaggle/kaggle_fl_benchmark.ipynb`
+- **Purpose:** Cloud GPU notebook execution harness for running the 36-simulation Phase E4 verification benchmark on Kaggle Tesla T4.
+- **How it fits into overall flow:** Provides a parallel cloud computing environment to run 30-round simulations across 6 calibration configurations efficiently without compute constraints.
+- **Block-by-block explanation:**
+  - *Cell 7 & 8:* Updated header and command to run `python src/experiments/run_phase_e4_verification.py --workers 4 --rounds 30`.
+  - *Cell 9 & 10:* Packages output files from `results/runs/phase_e4_verification/` into `/kaggle/working/phase_e4_results.zip` for automated retrieval.
+
+
