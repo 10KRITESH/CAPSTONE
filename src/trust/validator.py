@@ -91,20 +91,42 @@ class UpdateValidator:
     ) -> list[ValidationResult]:
         import time
         t0 = time.time()
+        is_cuda = (self.device.type == "cuda")
 
         # 1. Flatten updates & compute geometric median reference update
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_cos_start = time.time()
         flat_updates = [flatten_update(u) for u in client_updates]
         ref_flat = compute_geometric_median_reference(flat_updates)
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_cos_ms = (time.time() - t_cos_start) * 1000.0
 
         # 2. Run Cross-Client Sub-Cluster Collusion Detection
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_col_start = time.time()
         collusion_penalties = self.collusion_detector.analyze_updates(
             client_updates, client_ids, ref_flat, round_num
         )
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_col_ms = (time.time() - t_col_start) * 1000.0
 
         # 3. Calculate L2 norms for all client updates
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_mad_start = time.time()
         norms = [float(u.norm().item()) for u in flat_updates]
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_mad_ms = (time.time() - t_mad_start) * 1000.0
 
         # 4. Evaluate baseline global model performance on server val set
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_probe_start = time.time()
         base_val_metrics = evaluate(global_model, self.server_val_loader, self.device, self.class_names)
         base_macro_f1 = base_val_metrics["macro_f1"]
         base_class_f1 = {cls: m["f1"] for cls, m in base_val_metrics["per_class"].items()}
@@ -168,5 +190,16 @@ class UpdateValidator:
                 validation_time_ms=elapsed_ms,
             )
             results.append(res)
+
+        if is_cuda:
+            torch.cuda.synchronize()
+        t_probe_ms = (time.time() - t_probe_start) * 1000.0
+
+        self.last_timing_breakdown = {
+            "cosine_ms": round(t_cos_ms, 2),
+            "mad_ms": round(t_mad_ms, 2),
+            "collusion_ms": round(t_col_ms, 2),
+            "probe_ms": round(t_probe_ms, 2),
+        }
 
         return results

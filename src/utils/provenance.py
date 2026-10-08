@@ -112,14 +112,29 @@ def collect_provenance(
 
 
 def save_run_metadata(
-    run_dir: Path,
-    provenance: dict[str, Any],
+    run_dir: Optional[Path | str] = None,
+    provenance: Optional[dict[str, Any]] = None,
     metrics: Optional[dict[str, Any]] = None,
+    config: Optional[dict[str, Any]] = None,
+    seeds: Optional[dict[str, Any]] = None,
+    results_dir: Optional[Path | str] = None,
+    extra: Optional[dict[str, Any]] = None,
 ) -> None:
     """Save resolved provenance and metrics to run directory."""
-    run_dir.mkdir(parents=True, exist_ok=True)
-    with open(run_dir / "provenance.json", "w") as f:
+    target_path = results_dir or run_dir or "."
+    target_dir = Path(target_path)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    if provenance is None:
+        provenance = collect_provenance(
+            config=config or {},
+            seeds=seeds or {},
+            wall_time_s=extra.get("total_wall_time_s", 0.0) if extra else 0.0,
+            extra=extra,
+        )
+
+    with open(target_dir / "provenance.json", "w") as f:
         json.dump(provenance, f, indent=2)
     if metrics:
-        with open(run_dir / "metrics.json", "w") as f:
+        with open(target_dir / "metrics.json", "w") as f:
             json.dump(metrics, f, indent=2)

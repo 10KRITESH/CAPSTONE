@@ -246,7 +246,12 @@ class FLCoordinator:
                 state_factors[c_id] = sf
 
                 # Commit state transition audit record to DB + Blockchain
+                ledger_time_ms = 0.0
                 if changed:
+                    is_cuda = (self.device.type == "cuda")
+                    if is_cuda:
+                        torch.cuda.synchronize()
+                    t_led_start = time.time()
                     rec_dict = {
                         "round": round_num,
                         "client_id": str(c_id),
@@ -265,6 +270,9 @@ class FLCoordinator:
                     self.db_repo.save_audit_record(
                         round_num, c_id, rec_dict, rec_hash, tx_hash, block_num
                     )
+                    if is_cuda:
+                        torch.cuda.synchronize()
+                    ledger_time_ms = (time.time() - t_led_start) * 1000.0
 
             # Perform Class-Aware Trust Aggregation
             global_dict, agg_time_ms = aggregate_trust_class_aware(
@@ -296,6 +304,20 @@ class FLCoordinator:
             self.global_model, self.server_val_loader, self.device, class_names=self.class_names
         )
 
+        val_timing = getattr(self.validator, "last_timing_breakdown", {})
+        timing_breakdown = {
+            "cosine_ms": val_timing.get("cosine_ms", 0.0),
+            "mad_ms": val_timing.get("mad_ms", 0.0),
+            "collusion_ms": val_timing.get("collusion_ms", 0.0),
+            "probe_ms": val_timing.get("probe_ms", 0.0),
+            "agg_ms": round(agg_time_ms, 2),
+            "ledger_ms": round(locals().get("ledger_time_ms", 0.0), 2),
+        }
+
+        # Calculate excluded clients and samples (quarantined or state factor 0)
+        excluded_cids = [cid for cid, sf in state_factors.items() if sf == 0.0]
+        excluded_samples = sum(sc for cid, sc in zip(client_ids, sample_counts) if cid in excluded_cids)
+
         round_summary = {
             "round": round_num,
             "num_clients": len(selected_clients),
@@ -311,6 +333,9 @@ class FLCoordinator:
             "comm_bytes": total_comm_bytes,
             "agg_time_ms": round(agg_time_ms, 2),
             "val_time_ms": round(val_time_ms, 2),
+            "timing_breakdown": timing_breakdown,
+            "excluded_clients": excluded_cids,
+            "excluded_samples": excluded_samples,
         }
 
         self.db_repo.save_round_metrics(
