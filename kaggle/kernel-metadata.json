@@ -1,0 +1,14 @@
+{
+  "id": "INSERT_YOUR_KAGGLE_USERNAME/capstone-fl-benchmark",
+  "title": "Capstone FL Benchmark (Byzantine-Robust FL-IDS)",
+  "code_file": "kaggle_fl_benchmark.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}
