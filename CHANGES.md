@@ -487,3 +487,18 @@
 - **How it fits into overall flow:** Asserts correctness of gate evaluation, matrix column recomputations, and soft containment bounds.
 - **Block-by-block explanation:**
   - *Matrix Precision Recomputation:* Updated `test_matrix_recompute_equality` to filter for non-null `quar_precision` values and assert equality against the updated `extract_client_outcomes` output.
+
+### Step 2: Make the Targeted Attack Potent (Calibration Knobs)
+
+#### `src/attacks/targeted_label_flip.py`
+- **Purpose:** Implements the targeted class-poisoning attack ($RECON \to BENIGN$, $4 \to 0$).
+- **How it fits into overall flow:** Simulates malicious clients attempting stealthy targeted degradation during local training and federated aggregation.
+- **Block-by-block explanation:**
+  - *`__init__` Parameter `boost_factor`:* Added parameter `boost_factor: float = 1.0` ($\gamma$) to allow update scaling.
+  - *`poison_update`:* Implements parameter update delta scaling: $w_{\text{poison}} = w_{\text{global}} + \gamma \cdot (w_{\text{local}} - w_{\text{global}})$. Scales floating-point parameter updates by $\gamma$ when the attack is active in the current round.
+
+#### `configs/default.yaml`
+- **Purpose:** Single source of truth for project configurations and hyperparameters.
+- **How it fits into overall flow:** Authoritative source for all components.
+- **Block-by-block explanation:**
+  - *`attack.potent`:* Recorded the calibrated settings that passed 3/3 calibration partitions under the potency gate: `band: [0.25, 0.40]`, `boost_factor: 2.0`, `local_epochs: 1`.

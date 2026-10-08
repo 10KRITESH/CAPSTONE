@@ -8,6 +8,7 @@ which is the exact attack scenario class-aware reputation is designed to mitigat
 
 from __future__ import annotations
 
+import torch
 import pandas as pd
 from src.attacks.base import BaseAttack
 
@@ -24,11 +25,25 @@ class TargetedLabelFlipAttack(BaseAttack):
         source_class: int = 4,  # e.g., RECON
         target_class: int = 0,  # e.g., BENIGN
         poison_ratio: float = 1.0,
+        boost_factor: float = 1.0,
     ) -> None:
         super().__init__(name="targeted_label_flip")
         self.source_class = source_class
         self.target_class = target_class
         self.poison_ratio = poison_ratio
+        self.boost_factor = float(boost_factor)
+
+    def poison_update(self, update: dict[str, torch.Tensor], round_num: int) -> dict[str, torch.Tensor]:
+        if not self.is_active_round(round_num) or self.boost_factor == 1.0:
+            return update
+
+        boosted = {}
+        for k, v in update.items():
+            if torch.is_floating_point(v):
+                boosted[k] = v * self.boost_factor
+            else:
+                boosted[k] = v
+        return boosted
 
     def poison_data(self, df: pd.DataFrame, round_num: int) -> pd.DataFrame:
         if not self.is_active_round(round_num) or self.poison_ratio <= 0.0:

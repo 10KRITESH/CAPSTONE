@@ -150,3 +150,10 @@ trust:
 
   probing:
     eval_batch_size: 2048
+
+# ---- Attack Configuration -----------------------------------------
+attack:
+  potent:
+    band: [0.25, 0.40]                  # Calibrated RECON-share band (passed 3/3 calibration partitions)
+    boost_factor: 2.0                   # Calibrated update boost factor gamma
+    local_epochs: 1                     # Attacker local epochs E_atk
