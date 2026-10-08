@@ -198,6 +198,7 @@ def run_phase_e1_smoke():
                     "attack": "targeted_label_flip" if scenario == "attacked" else "clean",
                     "train_seed": seed,
                     "partition_seed": partition_seed,
+                    "rounds": num_rounds,
                     "attacker_mode": f"band_{attacker_ids}",
                     "attacker_ids": attacker_ids,
                     "attacker_sample_share": round(attacker_sample_share, 4),

@@ -84,8 +84,17 @@ def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
     Computes paired potency metrics (attacked minus clean per unit of replication).
     Replication unit is (partition_seed, train_seed) or train_seed.
     Calculates realized attacker RECON share, sample share, paired ASR delta, paired RECON F1 drop.
-    Automatic gate: targeted attack PASS iff ASR delta CI lower > 0 AND RECON F1 drop CI lower > 0.
-    Never outputs 'BASELINE'. Returns PASS or FAIL.
+
+    Sign Convention:
+      - Paired ASR delta = attacked_ASR - clean_ASR (positive delta means attack succeeded in boosting ASR).
+      - Paired RECON-F1 drop = clean_RECON_F1 - attacked_RECON_F1 (positive drop means attack succeeded in causing harm).
+      - Paired RECON-F1 delta = attacked_RECON_F1 - clean_RECON_F1 = -drop (negative delta means attack reduced F1).
+
+    Gate Criteria:
+      A targeted attack PASSES iff BOTH:
+        1. ASR criterion: paired ASR delta CI lower bound > 0.
+        2. F1 criterion: paired RECON-F1 delta CI upper bound < 0 (equivalently, paired RECON-F1 drop CI lower bound > 0).
+      Returns separate boolean flags (ASR_ok, F1_ok) alongside overall PASS/FAIL.
     """
     df = df_pot.copy()
     if "scenario" in df.columns:
@@ -118,6 +127,150 @@ def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
     else:
         group_col = "scenario"
 
+def evaluate_potency_gate(
+    paired_asr_deltas: list[float],
+    paired_recon_drops: list[float],
+    paired_macro_drops: list[float] | None = None,
+    is_targeted: bool = True,
+    clusters: list[int] | None = None,
+) -> tuple[bool, bool, str, tuple[float, float, float], tuple[float, float, float]]:
+    """
+    Evaluates attack potency gate using bootstrap 95% confidence intervals.
+
+    Sign Convention & Harm Metrics:
+      - Paired ASR delta = attacked - clean.
+        Positive value indicates attack increased ASR (harm achieved).
+        ASR criterion (ASR_ok): ASR delta 95% CI lower bound > 0.
+      - Paired RECON-F1 delta = attacked - clean.
+        Negative value indicates attack degraded RECON-F1 (harm achieved).
+        Harm criterion: RECON-F1 delta 95% CI upper bound < 0.
+      - Paired RECON-F1 drop = clean - attacked.
+        Positive value indicates attack degraded RECON-F1 (harm achieved).
+        F1 criterion (F1_ok): RECON-F1 drop 95% CI lower bound > 0.
+        (Note: RECON-F1 drop CI lower bound > 0 is mathematically identical to RECON-F1 delta CI upper bound < 0).
+
+    Targeted attack PASS criteria:
+      gate_status == "**PASS**" iff BOTH ASR_ok and F1_ok are True.
+      If either criterion is False (or either CI straddles zero), gate_status is "**FAIL**".
+    """
+    asr_d_m, asr_d_l, asr_d_h = bootstrap_ci(paired_asr_deltas, clusters=clusters)
+    rf_drop_m, rf_drop_l, rf_drop_h = bootstrap_ci(paired_recon_drops, clusters=clusters)
+
+    asr_ok = bool(asr_d_l > 0.0)
+    f1_ok = bool(rf_drop_l > 0.0)
+
+    if is_targeted:
+        passed = asr_ok and f1_ok
+    else:
+        if paired_macro_drops is not None:
+            _, mf_drop_l, _ = bootstrap_ci(paired_macro_drops, clusters=clusters)
+            passed = bool(mf_drop_l > 0.0)
+        else:
+            passed = f1_ok
+        f1_ok = passed
+        asr_ok = True
+
+    gate_status = "**PASS**" if passed else "**FAIL**"
+    return asr_ok, f1_ok, gate_status, (asr_d_m, asr_d_l, asr_d_h), (rf_drop_m, rf_drop_l, rf_drop_h)
+
+
+def extract_client_outcomes(rec: dict, num_total_clients: int = 10) -> dict:
+    """
+    Builds the single source of truth for per-client outcomes from a run record.
+    Returns:
+        honest_prob_clients: list[int]
+        honest_quar_clients: list[int]
+        attackers_prob_clients: list[int]
+        attackers_quar_clients: list[int]
+        containment_fpr: float (probation OR quarantine)
+        quarantine_fpr: float
+        attacker_det_quar: float
+        attacker_det_prob: float
+        quar_precision: float
+    """
+    atks = set(rec.get("attacker_ids", []))
+    all_clients = set(range(num_total_clients))
+    honest = all_clients - atks
+
+    # Extract final quarantined and probation sets
+    if "final_quarantined_clients" in rec or "final_quarantined" in rec:
+        final_q = set(rec.get("final_quarantined_clients", rec.get("final_quarantined", [])))
+    elif "honest_quar_clients" in rec:
+        final_q = set(rec.get("honest_quar_clients", [])) | set(rec.get("attackers_quar_clients", []))
+    else:
+        final_q = set()
+
+    if "final_probation_clients" in rec or "final_probation" in rec:
+        final_p = set(rec.get("final_probation_clients", rec.get("final_probation", [])))
+    elif "honest_prob_clients" in rec:
+        final_p = set(rec.get("honest_prob_clients", [])) | set(rec.get("attackers_prob_clients", []))
+    else:
+        final_p = set()
+
+    h_prob = sorted(list(honest & final_p))
+    h_quar = sorted(list(honest & final_q))
+    a_prob = sorted(list(atks & final_p))
+    a_quar = sorted(list(atks & final_q))
+
+    num_honest = len(honest)
+    num_atks = len(atks)
+
+    containment_fpr = (len(h_prob) + len(h_quar)) / max(1, num_honest)
+    quarantine_fpr = len(h_quar) / max(1, num_honest)
+    attacker_det_quar = (len(a_quar) / num_atks) if num_atks > 0 else 0.0
+    attacker_det_prob = (len(a_prob) / num_atks) if num_atks > 0 else 0.0
+    tot_quar = len(h_quar) + len(a_quar)
+    quar_precision = (len(a_quar) / tot_quar) if tot_quar > 0 else 1.0
+
+    return {
+        "honest_prob_clients": h_prob,
+        "honest_quar_clients": h_quar,
+        "attackers_prob_clients": a_prob,
+        "attackers_quar_clients": a_quar,
+        "containment_fpr": containment_fpr,
+        "quarantine_fpr": quarantine_fpr,
+        "attacker_det_quar": attacker_det_quar,
+        "attacker_det_prob": attacker_det_prob,
+        "quar_precision": quar_precision,
+    }
+
+
+def compute_potency_report(df: pd.DataFrame) -> list[dict]:
+    """
+    Computes paired deltas (attacked - clean) per seed with cluster bootstrap.
+    Enforces automatic gate:
+      - Targeted attacks: PASS iff ASR delta CI lower bound > 0 AND RECON F1 drop CI lower bound > 0.
+      - Untargeted attacks: PASS iff Macro F1 drop CI lower bound > 0.
+      - Otherwise FAIL.
+    Never outputs 'BASELINE' status.
+    """
+    df = df.copy()
+    if "partition_seed" not in df.columns:
+        df["partition_seed"] = 42
+    if "attacker_recon_share" not in df.columns:
+        df["attacker_recon_share"] = df.get("attacker_source_share", 0.0)
+
+    df["rep_key"] = df.apply(lambda r: f"{r['partition_seed']}_{r['train_seed']}", axis=1)
+
+    is_clean = (
+        (df["scenario"].isin(["clean", "clean_control"]))
+        | (df.get("attack", pd.Series([""] * len(df))).isin(["clean", "clean_control"]))
+    )
+    clean_df = df[is_clean]
+    clean_map = {r["rep_key"]: r for _, r in clean_df.iterrows()}
+    clean_seed_map = {r["train_seed"]: r for _, r in clean_df.iterrows()}
+
+    attacked_df = df[~is_clean]
+    if attacked_df.empty:
+        return []
+
+    if "attacker_mode" in attacked_df.columns and len(attacked_df["attacker_mode"].unique()) > 1:
+        group_col = "attacker_mode"
+    elif "attack" in attacked_df.columns and len(attacked_df["attack"].unique()) > 1:
+        group_col = "attack"
+    else:
+        group_col = "scenario"
+
     potency_rows = []
     for sc, grp in attacked_df.groupby(group_col):
         paired_asr_deltas = []
@@ -126,6 +279,8 @@ def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
         recon_shares = []
         sample_shares = []
         cluster_ids = []
+        config_details = []
+        distinct_attacker_sets = set()
 
         for _, atk_row in grp.iterrows():
             rk = atk_row["rep_key"]
@@ -152,30 +307,48 @@ def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
             paired_asr_deltas.append(delta_asr)
             paired_recon_drops.append(recon_drop)
             paired_macro_drops.append(macro_drop)
-            recon_shares.append(float(atk_row.get("attacker_recon_share", 0.0)))
-            sample_shares.append(float(atk_row.get("attacker_sample_share", 0.0)))
+
+            r_share = float(atk_row.get("attacker_recon_share", 0.0))
+            s_share = float(atk_row.get("attacker_sample_share", 0.0))
+            recon_shares.append(r_share)
+            sample_shares.append(s_share)
             cluster_ids.append(atk_row["partition_seed"])
+
+            atk_ids = tuple(sorted(atk_row.get("attacker_ids", [])))
+            distinct_attacker_sets.add(atk_ids)
+            config_details.append({
+                "partition_seed": atk_row["partition_seed"],
+                "train_seed": s_val,
+                "attacker_ids": list(atk_ids),
+                "sample_share": s_share,
+                "recon_share": r_share,
+            })
 
         n_pairs = len(paired_asr_deltas)
         clusters = cluster_ids if len(set(cluster_ids)) > 1 else None
+        n_clusters = len(set(cluster_ids))
 
         rec_m, rec_l, rec_h = bootstrap_ci(recon_shares, clusters=clusters)
         samp_m, _, _ = bootstrap_ci(sample_shares, clusters=clusters)
-        asr_d_m, asr_d_l, asr_d_h = bootstrap_ci(paired_asr_deltas, clusters=clusters)
-        rf_drop_m, rf_drop_l, rf_drop_h = bootstrap_ci(paired_recon_drops, clusters=clusters)
 
-        is_targeted = any("targeted" in str(x).lower() for x in [sc, grp["attack"].iloc[0] if "attack" in grp else ""])
-        if is_targeted:
-            passed = (asr_d_l > 0.0) and (rf_drop_l > 0.0)
-        else:
-            _, mf_drop_l, _ = bootstrap_ci(paired_macro_drops, clusters=clusters)
-            passed = (mf_drop_l > 0.0)
+        is_targeted = any(
+            "targeted" in str(x).lower() or "band" in str(x).lower()
+            for x in [sc, grp["attack"].iloc[0] if "attack" in grp else ""]
+        )
+        asr_ok, f1_ok, gate_status, (asr_d_m, asr_d_l, asr_d_h), (rf_drop_m, rf_drop_l, rf_drop_h) = evaluate_potency_gate(
+            paired_asr_deltas=paired_asr_deltas,
+            paired_recon_drops=paired_recon_drops,
+            paired_macro_drops=paired_macro_drops,
+            is_targeted=is_targeted,
+            clusters=clusters,
+        )
 
-        gate_status = "**PASS**" if passed else "**FAIL**"
+        rounds_val = int(grp["rounds"].iloc[0]) if "rounds" in grp.columns and pd.notna(grp["rounds"].iloc[0]) else 10
 
         potency_rows.append({
             "scenario": sc,
             "n": n_pairs,
+            "rounds": rounds_val,
             "mean_sample_share": samp_m,
             "mean_recon_share": rec_m,
             "recon_share_ci": (rec_l, rec_h),
@@ -183,7 +356,15 @@ def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
             "paired_recon_drop_ci": (rf_drop_l, rf_drop_h),
             "paired_asr_delta_m": asr_d_m,
             "paired_asr_delta_ci": (asr_d_l, asr_d_h),
+            "asr_ok": asr_ok,
+            "f1_ok": f1_ok,
             "gate_status": gate_status,
+            "n_clusters": n_clusters,
+            "partition_seeds": sorted(list(set(cluster_ids))),
+            "train_seeds": sorted(list(set(r["train_seed"] for r in config_details))),
+            "distinct_attacker_sets": [list(x) for x in sorted(list(distinct_attacker_sets))],
+            "num_distinct_attacker_sets": len(distinct_attacker_sets),
+            "config_details": config_details,
         })
     return potency_rows
 
@@ -267,7 +448,15 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         log.error(f"No valid records found in {jsonl_path}")
         return
 
-    df = pd.DataFrame(records)
+    # Build single source of truth for per-client outcomes per run
+    processed_records = []
+    for r in records:
+        rec = dict(r)
+        outcomes = extract_client_outcomes(rec, num_total_clients=10)
+        rec.update(outcomes)
+        processed_records.append(rec)
+
+    df = pd.DataFrame(processed_records)
     # Standardize column names across experiment harnesses
     if "attack" in df.columns and "scenario" not in df.columns:
         df["scenario"] = df["attack"].apply(lambda a: "clean" if a == "clean" else "attacked")
@@ -280,9 +469,10 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
     n_seeds = len(seeds)
     is_evidence = n_seeds >= 8
     run_label = "EVIDENCE" if is_evidence else "SMOKE"
-    unreliable_footnote = "" if is_evidence else " *(unreliable: n < 8 seeds, marked SMOKE)*"
+    unreliable_footnote = "" if is_evidence else f" *(unreliable: n = {n_seeds} < 8 configs, marked SMOKE)*"
 
-    rounds = int(df["rounds"].iloc[0]) if "rounds" in df.columns else 30
+    rounds = int(df["rounds"].iloc[0]) if "rounds" in df.columns and pd.notna(df["rounds"].iloc[0]) else (5 if "smoke" in run_dir.name.lower() else 30)
+
     methods_run = sorted(df["method"].unique().tolist())
 
     # Build RESULTS.md document
@@ -296,6 +486,9 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
     lines.append(f"# Experimental Benchmark Results: `{run_dir.name}`")
     lines.append(f"**Classification:** `{run_label}` ({n_seeds} seeds evaluated: {seeds})")
     lines.append("")
+    if rounds < 15:
+        lines.append("> [!WARNING] quarantine rarely fires before round 5; false-positive rates are not informative at this horizon")
+        lines.append("")
 
     # Section 1: Config Header
     lines.append("## 1. Benchmark Configuration Header")
@@ -318,6 +511,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
     # Section 2: Step A Potency Gate
     pot_df_to_use = None
     potency_jsonl = Path("results/runs/step_a_potency/runs.jsonl")
+    potency_source_run = "step_a_potency"
     if potency_jsonl.exists():
         p_recs = []
         with open(potency_jsonl) as f:
@@ -329,18 +523,50 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         fedavg_df = df[df["method"] == "fedavg"]
         if not fedavg_df.empty and len(fedavg_df["scenario"].unique()) > 1:
             pot_df_to_use = fedavg_df
+            potency_source_run = run_dir.name
 
     if pot_df_to_use is not None and not pot_df_to_use.empty:
         pot_rows = compute_potency_report(pot_df_to_use)
         if pot_rows:
             lines.append("## 2. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, Paired Controls)")
-            lines.append("| Scenario / Band | Realized RECON Share | Paired RECON F1 Drop [95% CI] | Paired ASR Delta [95% CI] | Gate Status |")
-            lines.append("| :--- | :---: | :---: | :---: | :---: |")
+            lines.append(f"*Source Run for Potency Data:* `{potency_source_run}`")
+            lines.append(
+                "| Scenario / Band | Realized RECON Share | Paired RECON F1 Drop [95% CI] | "
+                "Paired ASR Delta [95% CI] | ASR_ok | F1_ok | Gate Status |"
+            )
+            lines.append(
+                "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |"
+            )
             for pr in pot_rows:
-                rec_s = f"{pr['mean_recon_share']*100:.1f}% [{pr['recon_share_ci'][0]*100:.1f}%, {pr['recon_share_ci'][1]*100:.1f}%]"
+                # Check for zero width CI
+                if pr["recon_share_ci"][0] == pr["recon_share_ci"][1]:
+                    rec_s = f"{pr['mean_recon_share']*100:.1f}% (single attacker set, no CI)"
+                else:
+                    rec_s = f"{pr['mean_recon_share']*100:.1f}% [{pr['recon_share_ci'][0]*100:.1f}%, {pr['recon_share_ci'][1]*100:.1f}%]"
+
+                # Check nominal band range
+                band_name = pr["scenario"]
+                nominal_label = ""
+                if band_name == "band_25_35" and pr["mean_recon_share"] < 0.25:
+                    nominal_label = " *(closest achievable)*"
+                elif band_name == "band_40_55" and pr["mean_recon_share"] < 0.40:
+                    nominal_label = " *(closest achievable)*"
+                elif band_name == "band_5_15" and (pr["mean_recon_share"] < 0.05 or pr["mean_recon_share"] > 0.15):
+                    nominal_label = " *(closest achievable)*"
+
                 rf_d = f"{pr['paired_recon_drop_m']*100:+.1f}% [{pr['paired_recon_drop_ci'][0]*100:.1f}%, {pr['paired_recon_drop_ci'][1]*100:.1f}%]"
                 asr_d = f"{pr['paired_asr_delta_m']*100:+.1f}% [{pr['paired_asr_delta_ci'][0]*100:.1f}%, {pr['paired_asr_delta_ci'][1]*100:.1f}%]"
-                lines.append(f"| `{pr['scenario']}` | {rec_s} | {rf_d} | {asr_d} | {pr['gate_status']} |")
+
+                lines.append(f"| `{pr['scenario']}`{nominal_label} | {rec_s} | {rf_d} | {asr_d} | {pr['asr_ok']} | {pr['f1_ok']} | {pr['gate_status']} |")
+
+            lines.append("")
+            lines.append("### Potency Band Execution Details:")
+            for pr in pot_rows:
+                lines.append(f"- **`{pr['scenario']}`:**")
+                lines.append(f"  - Rounds: `{pr.get('rounds', 10)}` | Partition Seeds: `{pr['partition_seeds']}` | Train Seeds: `{pr['train_seeds']}`")
+                lines.append(f"  - Independent Clusters: `{pr['n_clusters']}` | Distinct Attacker Sets ({pr['num_distinct_attacker_sets']}): `{pr['distinct_attacker_sets']}`")
+                cfg_shares = [f"seed {c['train_seed']}: {c['attacker_ids']} (sample={c['sample_share']*100:.1f}%, recon={c['recon_share']*100:.1f}%)" for c in pr["config_details"]]
+                lines.append(f"  - Realized Shares: {'; '.join(cfg_shares)}")
             lines.append("")
 
     # Section 3: Step B Clean-Run False-Positive Progression
@@ -356,40 +582,54 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
 
     # Section 4: Performance Matrix across Defenses & Detector Variants
     lines.append("## 4. Benchmark Performance Matrix (Clean vs. Attacked)")
+    if rounds < 15:
+        lines.append("> [!WARNING] quarantine rarely fires before round 5; false-positive rates are not informative at this horizon")
+        lines.append("")
     lines.append(
-        "| Method | Type | Clean F1 [95% CI] | Attacked F1 [95% CI] | Clean FPR (Clients) | Clean FPR (Data) | "
-        "Attacked RECON F1 | Attacked ASR | Attacker Det (Quar) | Attacker Det (Prob) | Quar Precision |"
+        "| Method | Type | Clean F1 | Attacked F1 | Containment FPR | "
+        "Quarantine FPR | Clean FPR (Data) | Attacked RECON F1 | Attacked ASR | "
+        "Attacker Det (Quar) | Attacker Det (Prob) | Quar Precision |"
     )
     lines.append(
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
     )
 
     clean_fedavg = df[(df["method"] == "fedavg") & (df["scenario"] == "clean")]
     clean_fedavg_f1 = clean_fedavg["macro_f1"].mean() if not clean_fedavg.empty else 0.0
     clean_fedavg_asr = clean_fedavg["asr"].mean() if not clean_fedavg.empty else 0.0
 
+    def format_spread(vals: list[float], pct: bool = True) -> str:
+        arr = np.asarray(vals, dtype=float)
+        if len(arr) == 0:
+            return "N/A"
+        scale = 100.0 if pct else 1.0
+        if len(arr) < 8:
+            return f"{np.mean(arr)*scale:.1f}% (min-max: [{np.min(arr)*scale:.1f}%, {np.max(arr)*scale:.1f}%], n={len(arr)}, unreliable)"
+        m, l, h = bootstrap_ci(arr)
+        return f"{m*scale:.1f}% [{l*scale:.1f}%, {h*scale:.1f}%]"
+
     for m in methods_run:
         m_clean = df[(df["method"] == m) & (df["scenario"] == "clean")]
         m_atk = df[(df["method"] == m) & (df["scenario"] == "attacked")]
 
-        c_f1_m, c_f1_l, c_f1_h = bootstrap_ci(m_clean["macro_f1"].tolist()) if not m_clean.empty else (0.0, 0.0, 0.0)
-        a_f1_m, a_f1_l, a_f1_h = bootstrap_ci(m_atk["macro_f1"].tolist()) if not m_atk.empty else (0.0, 0.0, 0.0)
+        c_f1_str = format_spread(m_clean["macro_f1"].tolist()) if not m_clean.empty else "0.0%"
+        a_f1_str = format_spread(m_atk["macro_f1"].tolist()) if not m_atk.empty else "0.0%"
 
-        c_fpr_c = m_clean["honest_fpr_clients"].mean() * 100 if not m_clean.empty else 0.0
+        c_cont_fpr = m_clean["containment_fpr"].mean() * 100 if not m_clean.empty else 0.0
+        c_quar_fpr = m_clean["quarantine_fpr"].mean() * 100 if not m_clean.empty else 0.0
         c_fpr_d = m_clean["honest_fpr_data"].mean() * 100 if not m_clean.empty else 0.0
 
         a_rf1 = m_atk["recon_f1"].mean() * 100 if not m_atk.empty else 0.0
         a_asr = m_atk["asr"].mean() * 100 if not m_atk.empty else 0.0
-        a_det_q = m_atk["attackers_detected_quarantine"].mean() / 2.0 * 100 if not m_atk.empty else 0.0
-        a_det_p = m_atk["attackers_detected_probation"].mean() / 2.0 * 100 if not m_atk.empty else 0.0
-        q_prec = m_atk["quarantine_precision"].mean() * 100 if not m_atk.empty else 100.0
+        a_det_q = m_atk["attacker_det_quar"].mean() * 100 if not m_atk.empty else 0.0
+        a_det_p = m_atk["attacker_det_prob"].mean() * 100 if not m_atk.empty else 0.0
+        q_prec = m_atk["quar_precision"].mean() * 100 if not m_atk.empty else 100.0
 
         m_type = "ORACLE" if "d1" in m else ("Baseline" if m in ["fedavg", "median", "trimmed_mean", "krum", "detector_log_only"] else "Deployable")
 
         lines.append(
-            f"| `{m}` | {m_type} | {c_f1_m*100:.1f}% [{c_f1_l*100:.1f}%, {c_f1_h*100:.1f}%] | "
-            f"{a_f1_m*100:.1f}% [{a_f1_l*100:.1f}%, {a_f1_h*100:.1f}%] | {c_fpr_c:.1f}% | {c_fpr_d:.1f}% | "
-            f"{a_rf1:.1f}% | {a_asr:.1f}% | {a_det_q:.1f}% | {a_det_p:.1f}% | {q_prec:.1f}% |"
+            f"| `{m}` | {m_type} | {c_f1_str} | {a_f1_str} | {c_cont_fpr:.1f}% | {c_quar_fpr:.1f}% | "
+            f"{c_fpr_d:.1f}% | {a_rf1:.1f}% | {a_asr:.1f}% | {a_det_q:.1f}% | {a_det_p:.1f}% | {q_prec:.1f}% |"
         )
     lines.append("")
     lines.append(f"*Note:* Undefended FedAvg clean controls: Macro-F1 = {clean_fedavg_f1*100:.2f}%, Clean Control ASR = {clean_fedavg_asr*100:.2f}%.{unreliable_footnote}")
@@ -397,7 +637,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
 
     # Section 5: Paired Differences vs Baselines & Hypothesis Testing
     lines.append("## 5. Paired Hypothesis Testing vs. Baselines (Attacked Condition)")
-    lines.append("| Proposed Variant | Baseline Compared | F1 Difference [95% CI] | Test Used | Unit & n | Raw p | Holm-Adjusted p | Outcome |")
+    lines.append("| Proposed Variant | Baseline Compared | F1 Difference | Test Used | Unit & n | Raw p | Holm-Adjusted p | Outcome |")
     lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     baselines_pool = ["fedavg", "median", "trimmed_mean", "krum", "detector_log_only"]
@@ -426,15 +666,14 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
                 v2 = b_atk[b_atk["train_seed"] == s]["macro_f1"].iloc[0]
                 diffs.append(v1 - v2)
 
-            d_m, d_l, d_h = bootstrap_ci(diffs)
             t_name, n_pairs, stat, p_val = paired_statistical_test(diffs)
             p_to_adjust.append(p_val)
 
             paired_test_rows.append({
                 "variant": pv,
                 "baseline": b_name,
-                "diff_m": d_m,
-                "diff_ci": f"[{d_l*100:.1f}%, {d_h*100:.1f}%]",
+                "diff_m": float(np.mean(diffs)),
+                "diff_str": format_spread(diffs),
                 "test": t_name,
                 "unit_n": f"seed (n={n_pairs})",
                 "raw_p": p_val,
@@ -445,7 +684,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         for row, adj_p in zip(paired_test_rows, adj_p_vals):
             outcome = "WIN" if (adj_p < 0.05 and row["diff_m"] > 0) else ("LOSS" if (adj_p < 0.05 and row["diff_m"] < 0) else "TIE")
             lines.append(
-                f"| `{row['variant']}` | `{row['baseline']}` | {row['diff_m']*100:+.2f}% {row['diff_ci']} | "
+                f"| `{row['variant']}` | `{row['baseline']}` | {row['diff_str']} | "
                 f"{row['test']} | {row['unit_n']} | {row['raw_p']:.4f} | {adj_p:.4f} | **{outcome}** |"
             )
     lines.append("")
@@ -463,15 +702,24 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
 
     # Section 7: Per-Seed Appendix Table
     lines.append("## 7. Appendix: Per-Seed Run Telemetry")
-    lines.append("| Seed | Method | Scenario | Macro-F1 | Core F1 | RECON F1 | ASR | Honest Quar | Attacker Quar | Wall Time (s) |")
-    lines.append("| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    lines.append(
+        "| Seed | Method | Scenario | Macro-F1 | Core F1 | RECON F1 | ASR | "
+        "Honest Prob | Honest Quar | Atk Prob | Atk Quar | Quar Prec | Wall Time (s) |"
+    )
+    lines.append(
+        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+    )
     for _, r in df.sort_values(by=["train_seed", "scenario", "method"]).iterrows():
+        hp = r.get("honest_prob_clients", [])
         hq = r.get("honest_quar_clients", [])
-        aq = r.get("attackers_detected_quarantine", 0)
+        ap = r.get("attackers_prob_clients", [])
+        aq = r.get("attackers_quar_clients", [])
+        num_atks = len(r.get("attacker_ids", []))
+        aq_str = f"{len(aq)}/{num_atks}" if num_atks > 0 else "0/0"
         lines.append(
             f"| {r['train_seed']} | `{r['method']}` | `{r['scenario']}` | {r['macro_f1']*100:.2f}% | "
             f"{r['core_macro_f1']*100:.2f}% | {r.get('recon_f1', 0.0)*100:.2f}% | {r.get('asr', 0.0)*100:.2f}% | "
-            f"`{hq}` | {aq}/2 | {r.get('wall_time_s', 0.0):.1f}s |"
+            f"`{hp}` | `{hq}` | `{ap}` | {aq_str} | {r['quar_precision']*100:.1f}% | {r.get('wall_time_s', 0.0):.1f}s |"
         )
     lines.append("")
 

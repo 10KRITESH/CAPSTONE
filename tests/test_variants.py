@@ -221,29 +221,43 @@ class TestDetectorVariants(unittest.TestCase):
         clients_fedavg = [DummyClient(i, fixed_updates[i]) for i in range(3)]
         clients_logonly = [DummyClient(i, fixed_updates[i]) for i in range(3)]
 
-        coord_fedavg = FLCoordinator(
-            config=cfg,
-            clients=clients_fedavg,
-            server_val_ds=self.val_loader.dataset,
-            test_ds=self.val_loader.dataset,
-            aggregation_method="fedavg",
-            device=self.device,
-        )
-        coord_fedavg.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+        import tempfile
+        from pathlib import Path
 
-        coord_logonly = FLCoordinator(
-            config=cfg,
-            clients=clients_logonly,
-            server_val_ds=self.val_loader.dataset,
-            test_ds=self.val_loader.dataset,
-            aggregation_method="detector_log_only",
-            device=self.device,
-        )
-        coord_logonly.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_p = Path(tmp_dir)
+            db1 = str(tmp_p / "audit_fedavg.db")
+            led1 = str(tmp_p / "ledger_fedavg.json")
+            db2 = str(tmp_p / "audit_logonly.db")
+            led2 = str(tmp_p / "ledger_logonly.json")
 
-        # Run 1 round on both
-        coord_fedavg.run_round(round_num=1)
-        coord_logonly.run_round(round_num=1)
+            coord_fedavg = FLCoordinator(
+                config=cfg,
+                clients=clients_fedavg,
+                server_val_ds=self.val_loader.dataset,
+                test_ds=self.val_loader.dataset,
+                aggregation_method="fedavg",
+                device=self.device,
+                db_path=db1,
+                ledger_path=led1,
+            )
+            coord_fedavg.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+
+            coord_logonly = FLCoordinator(
+                config=cfg,
+                clients=clients_logonly,
+                server_val_ds=self.val_loader.dataset,
+                test_ds=self.val_loader.dataset,
+                aggregation_method="detector_log_only",
+                device=self.device,
+                db_path=db2,
+                ledger_path=led2,
+            )
+            coord_logonly.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+
+            # Run 1 round on both
+            coord_fedavg.run_round(round_num=1)
+            coord_logonly.run_round(round_num=1)
 
         dict_fedavg = coord_fedavg.global_model.state_dict()
         dict_logonly = coord_logonly.global_model.state_dict()
