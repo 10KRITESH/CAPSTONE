@@ -634,8 +634,18 @@
 - **Purpose:** Unit test suite for detector variants, trust mechanisms, and audit protection guarantees.
 - **How it fits into overall flow:** Validates that all mathematical and behavioral guarantees hold across components and prevents regressions.
 - **Block-by-block explanation:**
-  - *`test_sample_scaled_norm_discrimination`:* Verifies that when sample counts differ by 100x ($100{,}000$ vs $1{,}000$), sample-scaled Z-scores remain stable and do not falsely flag large honest clients as extreme outliers.
-  - *`test_head_energy_gate_suppresses_zero_sample_drop`:* Verifies that an honest client with zero update energy on class 4 (RECON) is not flagged for target class degradation under D2.
-  - *`test_mad_floor_prevents_zero_variance_blowup`:* Verifies that the MAD scale floor prevents peer Z-scores from blowing up under near-zero peer variance.
-  - *`test_state_machine_warmup_horizon`:* Verifies that clients with high evidence ($E = 0.85$) are held in `PROBATION` during rounds 1..5 and only escalate to `QUARANTINED` after round 5.
-  - *`test_head_salience_weighting`:* Verifies that a client with active gradient energy on class 4 drives class 4 head updates even when another client has 10x larger total sample volume on class 0.
+  - `test_sample_scaled_norm_discrimination`: Verifies that when sample counts differ by 100x ($100{,}000$ vs $1{,}000$), sample-scaled Z-scores remain stable and do not falsely flag large honest clients as extreme outliers.
+  - `test_head_energy_gate_suppresses_zero_sample_drop`: Verifies that an honest client with zero update energy on class 4 (RECON) is not flagged for target class degradation under D2.
+  - `test_mad_floor_prevents_zero_variance_blowup`: Verifies that the MAD scale floor prevents peer Z-scores from blowing up under near-zero peer variance.
+  - `test_state_machine_warmup_horizon`: Verifies that clients with high evidence ($E = 0.85$) are held in `PROBATION` during rounds 1..5 and only escalate to `QUARANTINED` after round 5.
+  - `test_head_salience_weighting`: Verifies that a client with active gradient energy on class 4 drives class 4 head updates even when another client has 10x larger total sample volume on class 0.
+
+### `src/experiments/run_phase_e4_verification.py`
+- **Purpose:** Standalone, reproducible Phase E4 verification benchmark that compares undefended FedAvg, legacy flawed D0, and the deployable fixed defense across all calibration configurations.
+- **How it fits into overall flow:** Runs 36 rigorous federated simulations across calibration seeds {11, 12, 13} x {1, 2} under both clean and attacked conditions. Produces detailed client-round telemetry CSV, JSONL run logs, and statistical bootstrap confidence intervals to empirically verify that Flaws 1–5 have been eliminated.
+- **Block-by-block explanation:**
+  - *Simulation Matrix Setup (`CONFIGS`, `MODES`):* Defines the 6 conditions (`clean_fedavg`, `clean_d0`, `clean_fixed`, `attacked_fedavg`, `attacked_d0`, `attacked_fixed`) across seeds {11, 12, 13} x {1, 2}.
+  - *`run_single_simulation`:* Executes local client training using `train_client`, computes local parameter updates $\Delta w_i = w_i - w_{\text{global}}$, and runs multi-signal trust evaluation. Under `d0`, uses legacy raw norm Z-scores, zero-variance probe tracking, and no warmup. Under `fixed`, activates sample-scaled norm Z-scores, head gradient energy gates, MAD scale floors, cohort-adaptive cosine thresholds, and warmup protection.
+  - *Head Salience Aggregation:* Under `fixed`, feeds head salience weights to `aggregate_trust_class_aware` to prevent majority class updates from drowning out minority class boundaries.
+  - *Telemetry & Summary Extraction:* Logs per-client, per-round norms, cosines, probe impacts, states, and reputations to CSV, computes bootstrap confidence intervals across runs, and prints the summary matrix.
+
