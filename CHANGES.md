@@ -515,7 +515,15 @@
 
 #### `kaggle/kaggle_fl_benchmark.ipynb` & `kaggle/kernel-metadata.json`
 - **Purpose:** Kaggle cloud GPU automation harness.
-- **How it fits into overall flow:** Mounts the uploaded private dataset `spector10/ciciot2023-fl-dev-partitions`, runs unit tests, executes `run_phase_e2_evaluation.py` on cloud GPU, and packages artifacts.
+- **How it fits into overall flow:** Mounts the uploaded private dataset `spector10/ciciot2023-fl-dev-partitions`, runs unit tests, executes `run_phase_e2_fast.py --workers 4` on cloud GPU, and packages artifacts.
 - **Block-by-block explanation:**
-  - *`kernel-metadata.json`:* Added `dataset_sources: ["spector10/ciciot2023-fl-dev-partitions"]`.
-  - *`kaggle_fl_benchmark.ipynb`:* Added symlinks from `/kaggle/input/` to `data/` and execution call for `run_phase_e2_evaluation.py`.
+  - *`kernel-metadata.json`:* Added `dataset_sources: ["spector10/ciciot2023-fl-dev-partitions"]` and enabled GPU acceleration.
+  - *`kaggle_fl_benchmark.ipynb`:* Added symlinks from `/kaggle/input/` to `data/` and updated execution to launch `run_phase_e2_fast.py --workers 4`.
+
+#### `src/experiments/run_phase_e2_fast.py`
+- **Purpose:** Maximum-performance parallel execution harness for Phase E2 evaluation.
+- **How it fits into overall flow:** Replaces sequential simulations with concurrent multi-worker execution, in-memory array caching, and GPU-vectorized metric computation to minimize cloud compute time and quota usage.
+- **Block-by-block explanation:**
+  - *`fast_gpu_evaluate`:* Vectorized PyTorch GPU confusion matrix computation (`bincount(8 * y_true + y_pred)`). Extracts true positives, false positives, false negatives, per-class F1, macro-F1, and ASR in < 5ms without CPU/sklearn overhead.
+  - *`execute_single_simulation`:* Core simulation routine with in-memory parquet caching, batch size 1024, pinned memory, and cuDNN benchmarking enabled.
+  - *`ProcessPoolExecutor(max_workers=4)`:* Spawns 4 concurrent simulation processes across CPU cores and GPU streams, enabling simultaneous execution of multiple federated runs.
