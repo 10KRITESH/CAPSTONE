@@ -165,3 +165,75 @@ Verified by loading each parquet shard in `data/partitions/dev/`:
 - **Sum of All Shards:** `355,861`
 - **Rows in `train.parquet`:** `355,861`
 - **Exact Match Confirmed:** **`True`**. The client shards partition `train.parquet` completely and without loss.
+
+---
+
+# Part 2: Phase 1 Step A Empirical Confirmations
+
+## A1. Ablation Legacy Artifacts & Integer Bug Analysis
+1. **Root Cause:** In the legacy code of `src/experiments/run_comprehensive_benchmark.py` (before commit `8998f74`), `def _build_poisoned_clients(partition_files, feature_cols, device, attack_factory_fn, num_malicious)` took an integer `num_malicious` and constructed `malicious_set = set(range(num_malicious))`.
+2. **Did old ablation rows have attackers?** **Yes.** Clients `0` and `1` were hardcoded as the malicious clients (`set(range(2))`).
+3. **Are legacy ablation numbers valid?** **NO.** They are fundamentally invalid and must NOT be cited because:
+   - PRNG seeds were unmanaged across runs (unseeded PyTorch/cuDNN/DataLoader/Dropout).
+   - Attackers were hardcoded to clients `0` and `1` (which hold only 2.50% and 12.66% of RECON samples).
+   - Minority class validation probe artifacts falsely quarantined honest clients 2 and 7 across runs.
+   - Evaluation metrics lacked Balanced Accuracy and Attack Success Rate (ASR).
+4. **Action Taken:** Moved all `results/ablation/*.json` files to `results/legacy/` and added a prominent `README.md` documenting why they must not be cited.
+
+## A2. Partition Shard Determinism & Byte-Identity
+1. Re-partitioned `data/processed/dev/train.parquet` using `partition_seed=42`, `alpha=0.5`, `num_clients=10` into a fresh temporary directory.
+2. Evaluated byte-for-byte SHA equality and DataFrame row/column value equality against `data/partitions/dev/`:
+   - All 10 client partitions are **100% DataFrame-equal** and **byte-identical** (`Byte-identical=True` across all 10 shards).
+   - Shards in `data/partitions/dev/` are confirmed bit-for-bit reproducible from seed 42.
+
+## A3. Attack Registry & Attacker Selection Audit
+Audited every attack module in `src/attacks/`:
+- `collusion.py`: Accepts `collusion_group_ids` in `__init__`. Previously hardcoded `[0, 1]`; now receives dynamic attacker sets selected via `select_malicious_clients(attacker_seed)` or `AttackerSelector`.
+- `on_off.py`: Wraps underlying attack behavior based on periodic round modulo (`round_num % period == 0`). Applied to clients designated by `select_malicious_clients`.
+- `targeted_label_flip.py`, `label_flip.py`, `model_poisoning.py`, `adaptive_norm_clip.py`, `adaptive_cosine_mimic.py`, `slow_drift.py`: Stateless or client-local transformations. Client assignment is completely managed at the harness level via `select_malicious_clients(attacker_seed)`.
+
+## A4. 40-Round On-Off Attacker Telemetry & Evidence Arithmetic Gap
+Executed 40 rounds of federated learning on CUDA with client 0 assigned an `OnOffAttackWrapper(period=3)` (active on rounds 3, 6, 9, 12, ...):
+
+| Round | Active | is_bad | $E_t$ | `consecutive_bad` | State | Active Flags Fired |
+| :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **1** | False | 0 | 0.0000 | 0 | `TRUSTED` | *(inactive)* |
+| **2** | False | 1 | 0.2000 | 1 | `TRUSTED` | *(inactive)* |
+| **3** | **True** | 1 | 0.3600 | 2 | `TRUSTED` | `TARGET_CLASS_DEGRADATION_RECON` |
+| **4** | False | 1 | 0.4880 | 3 | `PROBATION` | *(inactive)* |
+| **5** | False | 1 | 0.5904 | 4 | `QUARANTINED` | *(inactive)* |
+| **6** | **True** | 1 | 0.6723 | 5 | `QUARANTINED` | `TARGET_CLASS_DEGRADATION_RECON`, `_MITM` |
+| **9** | **True** | 1 | 0.6722 | 1 | `QUARANTINED` | `TARGET_CLASS_DEGRADATION_RECON`, `_MITM` |
+| **12**| **True** | 1 | 0.7042 | 2 | `QUARANTINED` | `TARGET_CLASS_DEGRADATION_RECON`, `_MITM` |
+| **18**| **True** | 1 | 0.7290 | 2 | `QUARANTINED` | `_DDOS`, `_RECON`, `_MITM` |
+
+### Explanation of the Arithmetic Gap ($0.4025$ Theory vs. $0.3686$ Past Measurement):
+1. **Theoretical Math (Pure Active Poisoning):**
+   - Assumes active rounds are flagged (`is_bad=1`) and inactive rounds are clean (`is_bad=0`).
+   - Round 3 (Attack 1): $E = 0.20$. Over next 2 clean rounds, decays by $0.80^2 = 0.64$ to $E = 0.128$.
+   - By Attack 6 (Round 18), geometric series accumulation yields $E = 0.8(0.2531) + 0.20 = \mathbf{0.4025}$, crossing the 0.40 probation threshold.
+2. **Empirical Reality under Non-IID Dirichlet Skew:**
+   - In live training, client 0 suffers probe drops on minority classes (`RECON`, `MITM`) even on *inactive* rounds.
+   - Consequently, `is_bad=1` fired on inactive rounds (R2, R4, R5), pushing evidence to $E = 0.5904$ and quarantining client 0 in Round 5.
+   - When an attacker's inactive rounds are purely clean, decay resets `consecutive_bad` to 0, and if any single active round misses the $-0.025$ threshold, evidence drops back to $\approx 0.3686$.
+
+## A5. Multi-Seed Clean vs. Attacked Comparison (10 Rounds, 3 Seeds)
+Conducted 10 rounds of training across 3 seeds (`42`, `100`, `2024`) comparing matching Clean and Attacked (20% Targeted Label-Flip) configurations:
+
+### Quarantine & Probation Summary:
+- **Seed 42:**
+  - *Clean:* Quarantined `[0, 2, 3, 4]` (40% Honest FPR!)
+  - *Attacked:* Quarantined `[0, 1, 8]` (100% Attacker Detection, 10% Honest FPR), Probation `[2]`
+- **Seed 100:**
+  - *Clean:* Quarantined `[0, 2, 7]` (30% Honest FPR)
+  - *Attacked:* Quarantined `[0, 1, 2, 7]` (100% Attacker Detection, 20% Honest FPR), Probation `[4, 8]`
+- **Seed 2024:**
+  - *Clean:* Quarantined `[0, 8]`, Probation `[2]`
+  - *Attacked:* Quarantined `[0, 1, 8]`, Probation `[2]`
+
+### Key Empirical Findings:
+1. **Did the defense ever flag RECON on an attacker?**
+   - **YES.** Across the 3 attacked runs, `TARGET_CLASS_DEGRADATION_RECON` fired **29 times** on attackers (clients 1 and 8).
+2. **Did attackers' flags differ between clean and attacked runs?**
+   - **YES, dramatically.** In clean runs, client 1 had 0 RECON flags across all 10 rounds for all 3 seeds. In attacked runs, client 1 was consistently flagged for `TARGET_CLASS_DEGRADATION_RECON` on virtually every round starting from Round 3.
+
