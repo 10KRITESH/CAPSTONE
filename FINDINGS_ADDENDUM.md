@@ -610,6 +610,71 @@ Tracked test Macro-F1 across rounds 1..30 on clean FedAvg across all 6 calibrati
 - Reaching within 1 percentage point of final performance requires **21.2 rounds on average**.
 - *Hypothesis:* Because minority-class decision boundaries continue developing through Round 20, D0's systematic quarantining of honest clients between Rounds 4 and 12 prematurely truncates gradient flow from honest minority shards, explaining D0's 3.5-point macro-F1 deficit relative to undefended FedAvg.
 
+---
+
+## Part 6: Phase E4 Empirical Verification Benchmark (Cloud GPU, 30 Rounds)
+
+**Platform:** Kaggle GPU (NVIDIA Tesla T4), 30 rounds, 4 parallel workers, 36 simulations across Calibration configs ({11, 12, 13} x {1, 2}).  
+**Total Wall Time:** 1,573.6s (26.2 minutes).  
+**Telemetry Sample Size:** 10,800 client-round observation records.
+
+### E4.1 Empirical Comparison Matrix (With 95% Bootstrap Confidence Intervals)
+
+| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quarantine (%) | Honest Data Excluded (%) | Attacker Quar Det (%) | Attacker Prob Det (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **clean_fedavg** | 49.42% [47.77%, 51.00%] | 42.69% [39.58%, 44.74%] | 12.40% [8.54%, 16.58%] | 0.0% | 0.0% | 0.0% | 0.0% |
+| **clean_d0** (legacy) | 47.05% [45.15%, 49.07%] | 41.43% [38.13%, 44.55%] | 10.60% [3.90%, 19.31%] | 21.7% | 28.0% | 0.0% | 0.0% |
+| **clean_fixed** (E4) | **48.19%** [47.74%, 48.65%] | **42.43%** [40.98%, 43.37%] | 13.61% [10.21%, 17.17%] | **10.0%** | **17.7%** | 0.0% | 0.0% |
+| **attacked_fedavg** | 43.45% [42.64%, 44.27%] | 1.23% [0.00%, 3.70%] | 36.74% [26.92%, 45.33%] | 0.0% | 0.0% | 0.0% | 0.0% |
+| **attacked_d0** (legacy) | 44.79% [43.37%, 46.30%] | 15.49% [0.24%, 31.55%] | 24.99% [9.45%, 41.31%] | 10.4% | 13.4% | 58.3% | 58.3% |
+| **attacked_fixed** (E4) | 43.31% [41.28%, 45.67%] | 12.15% [0.00%, 24.98%] | 26.11% [13.32%, 38.97%] | **4.2%** | **4.9%** | 41.7% | 41.7% |
+
+---
+
+### E4.2 Detailed Verification of the 5 Diagnostic Flaws
+
+#### Flaw 1: Honest False Degradation Flags on Low/Zero-Sample Classes
+- **Measurement:** In `clean_d0`, honest clients suffered false degradation flags on **579 / 1,800 rounds (32.17%)**.
+- **Result under `clean_fixed`:** Flagged honest rounds dropped to **284 / 1,800 rounds (15.78%)**, representing a **51.0% reduction in false alarms**.
+- **Detection Specificity:** On attackers, true positive detection of `TARGET_CLASS_DEGRADATION_RECON` increased from 50 firings in D0 to **88 firings (+76.0%)** in Fixed. Falsely fired flags on innocent classes (`WEBAPP`, `MALWARE`, `DOS`) dropped by **72–85%**.
+
+#### Flaw 2: Norm Z Skew Confound (Dataset Size Tracking)
+- **Measurement:** In `clean_d0`, Spearman correlation between update norm Z and client sample count was $\rho = +0.9446$ ($p < 10^{-15}$).
+- **Result under `clean_fixed`:** Sample-scaled norm normalization dropped Spearman $\rho$ to **$+0.5173$** (and $+0.7171$ in pooled clean/attacked telemetry), a **0.427 point drop**.
+
+#### Flaw 3: Skew-Induced Cosine Divergence Flags
+- **Measurement:** Under D0, non-IID honest clients with label concentrations were repeatedly penalized for acute angle deviations.
+- **Result under `clean_fixed`:** Adaptive cohort cosine lower bounding ensured honest clients maintained high directional quality ($\text{sim\_q} \in [0.85, 1.0]$), and non-negative probe impact maintained full $\text{perf\_q} = 1.0$.
+
+#### Flaw 4: Early-Round Instability & False Quarantines
+- **Measurement:** In `clean_d0`, honest clients spent **324 / 1,800 rounds (18.00%)** locked in `QUARANTINED`, with 7 out of 10 clients quarantined.
+- **Result under `clean_fixed`:** Honest rounds spent in `QUARANTINED` plunged to **128 / 1,800 rounds (7.11%)**, a **60.5% reduction**.
+- **Under Attack:** Honest quarantine rounds plunged from **7.92% (D0) down to 2.92% (Fixed)**, and honest data excluded dropped from **13.4% down to 4.9%**.
+- **Zero Quarantine Partitions:** In Partition 13 (seeds 1 & 2), `clean_fixed` achieved **0.0% honest quarantine** and **0.0% honest data exclusion**.
+
+#### Flaw 5: Majority Monopolization & Parity with Clean FedAvg
+- **Measurement:** In `clean_d0`, Macro-F1 was 47.05% (a 2.37% penalty vs FedAvg 49.42%) because excluding honest clients threw away 28.0% of honest training data.
+- **Result under `clean_fixed`:** Head salience aggregation restored Macro-F1 to **48.19%** (within 1.23% of Clean FedAvg) and matched Clean RECON F1 at **42.43%** (vs FedAvg 42.69%).
+
+---
+
+### E4.3 Brutally Honest Technical Critique: What Remains Imperfect & Why
+
+1. **The Warmup "Dam Break" Accumulator Bug:**
+   - *Observation:* While `warmup_rounds: 5` completely prevented any quarantines during rounds 1..5, clients 4 and 6 in P11 were instantly quarantined on **Round 6** (`PROBATION_VIOLATION_BAD_ROUNDS=5`).
+   - *Root Cause:* In `src/trust/state_machine.py`, `consecutive_bad` incremented during warmup while the transition was held in `PROBATION` (`WARMUP_HOLD`). When round 6 arrived, the accumulated count was already at 5, triggering immediate escalation.
+   - *Actionable Fix:* `consecutive_bad` must either reset to 0 at the end of the warmup horizon, or only begin accumulating after `round_num > warmup_rounds`.
+
+2. **Residual Norm Z Correlation ($\rho = +0.5173$):**
+   - *Observation:* Normalizing by $\sqrt{n_i / \bar{n}}$ reduced correlation from 0.9446 to 0.5173, but did not eliminate it.
+   - *Root Cause:* Local SGD drift in non-IID regimes scales more closely with the number of mini-batch gradient steps $K_i \propto n_i$, rather than the square root $\sqrt{n_i}$. Scaling by $(n_i / \bar{n})^{0.85}$ or standardizing relative to peer clients of similar sample size will neutralize the remaining skew confound.
+
+3. **Targeted Attack Detection Sensitivity (41.7% vs 58.3%):**
+   - *Observation:* In `attacked_fixed`, attacker quarantine detection was 41.7% across calibration runs compared to 58.3% in D0.
+   - *Root Cause:* In D0, attackers were caught largely as "collateral damage" of hyper-sensitive zero-variance probe drops ($Z = -10$) and broken norm Z scores. In `fixed`, because evidence requires $E \ge 0.60$ for probation escalation and the other 7 classes are clean, single-class targeted poisoning produces composite evidence hovering around $E \approx 0.30–0.35$ (below the 0.40 probation threshold).
+   - *Actionable Fix:* Implement class-specific state escalation, where evidence on an individual targeted class ($E_c \ge 0.60$) triggers per-class head lockout even if composite global evidence remains below the global threshold.
+
+
 
 
 

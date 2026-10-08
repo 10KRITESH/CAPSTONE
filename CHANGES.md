@@ -653,7 +653,23 @@
 - **Purpose:** Cloud GPU notebook execution harness for running the 36-simulation Phase E4 verification benchmark on Kaggle Tesla T4.
 - **How it fits into overall flow:** Provides a parallel cloud computing environment to run 30-round simulations across 6 calibration configurations efficiently without compute constraints.
 - **Block-by-block explanation:**
-  - *Cell 7 & 8:* Updated header and command to run `python src/experiments/run_phase_e4_verification.py --workers 4 --rounds 30`.
-  - *Cell 9 & 10:* Packages output files from `results/runs/phase_e4_verification/` into `/kaggle/working/phase_e4_results.zip` for automated retrieval.
+-   - *Cell 7 & 8:* Updated header and command to run `python src/experiments/run_phase_e4_verification.py --workers 4 --rounds 30`.
+-   - *Cell 9 & 10:* Packages output files from `results/runs/phase_e4_verification/` into `/kaggle/working/phase_e4_results.zip` for automated retrieval.
+
+### `FINDINGS_ADDENDUM.md`
+- **Purpose:** Primary repository for empirical findings, diagnostic breakdowns, and verification matrices.
+- **How it fits into overall flow:** Records raw measurements, confidence intervals, and root-cause analyses from live test runs.
+- **Block-by-block explanation:**
+  - *Part 6 (Phase E4 Verification Benchmark):* Documents the 6-mode comparison matrix with 95% bootstrap confidence intervals across 36 cloud GPU simulations (10,800 client rounds).
+  - *Flaw-by-Flaw Quantifications:* Details the 51.0% drop in false alarms, 0.427 point drop in norm Z correlation ($\rho = 0.5173$), 60.5% drop in honest quarantine duration, and clean Macro-F1 parity recovery (48.19% vs 49.42%).
+  - *Brutal Honesty Section:* Uncovers the warmup "dam break" accumulator bug on round 6, residual norm Z correlation, and targeted single-class evidence dilution.
+
+### `RESULTS.md`
+- **Purpose:** Top-level executive benchmark summary.
+- **How it fits into overall flow:** Provides a concise, high-level summary of system performance for decision-making.
+- **Block-by-block explanation:**
+  - *Section 8:* Tabulates the final Phase E4 verification matrix, highlighting key diagnostic improvements over legacy D0 and undefended FedAvg.
+
+
 
 

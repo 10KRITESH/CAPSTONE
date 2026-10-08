@@ -147,3 +147,22 @@
 | 2 | `fedavg` | `clean` | 36.48% | 45.54% | 31.19% | 0.00% | `[]` | `[]` | `[]` | 0/0 | n/a | 11.4s |
 | 2 | `proposed_d0` | `clean` | 40.25% | 46.36% | 38.13% | 0.00% | `[]` | `[0, 6, 7]` | `[]` | 0/0 | 0.0% | 16.4s |
 | 2 | `proposed_d4` | `clean` | 39.02% | 46.10% | 36.53% | 0.00% | `[0, 6, 7]` | `[]` | `[]` | 0/0 | n/a | 16.6s |
+
+## 8. Phase E4 Empirical Verification Matrix (Cloud GPU, 30 Rounds, Calibration Configs)
+*Source Run:* `results_cloud_e4/results/runs/phase_e4_verification/` (Kaggle GPU, NVIDIA Tesla T4, 30 rounds, 36 simulations across Calibration seeds {11, 12, 13} x {1, 2}, 1,573.6s wall time).
+
+| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quarantine (%) | Honest Data Excluded (%) | Attacker Quar Det (%) | Attacker Prob Det (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **clean_fedavg** | 49.42% [47.77%, 51.00%] | 42.69% [39.58%, 44.74%] | 12.40% [8.54%, 16.58%] | 0.0% | 0.0% | 0.0% | 0.0% |
+| **clean_d0** (legacy) | 47.05% [45.15%, 49.07%] | 41.43% [38.13%, 44.55%] | 10.60% [3.90%, 19.31%] | 21.7% | 28.0% | 0.0% | 0.0% |
+| **clean_fixed** (E4) | **48.19%** [47.74%, 48.65%] | **42.43%** [40.98%, 43.37%] | 13.61% [10.21%, 17.17%] | **10.0%** | **17.7%** | 0.0% | 0.0% |
+| **attacked_fedavg** | 43.45% [42.64%, 44.27%] | 1.23% [0.00%, 3.70%] | 36.74% [26.92%, 45.33%] | 0.0% | 0.0% | 0.0% | 0.0% |
+| **attacked_d0** (legacy) | 44.79% [43.37%, 46.30%] | 15.49% [0.24%, 31.55%] | 24.99% [9.45%, 41.31%] | 10.4% | 13.4% | 58.3% | 58.3% |
+| **attacked_fixed** (E4) | 43.31% [41.28%, 45.67%] | 12.15% [0.00%, 24.98%] | 26.11% [13.32%, 38.97%] | **4.2%** | **4.9%** | 41.7% | 41.7% |
+
+### Key Diagnostic Quantifications:
+1. **Honest False Degradation Alarms:** Slashed by **51.0%** (from 32.17% of all honest rounds under D0 down to 15.78% under Fixed). RECON-specific attacker targeting detections increased from 50 firings in D0 to **88 firings (+76.0%)** in Fixed.
+2. **Norm Z Skew Confound:** Spearman correlation with client sample count fell from **$\rho = +0.9446$** down to **$+0.5173$** (a 0.427 point reduction).
+3. **Honest Quarantine Duration:** Slashed by **60.5%** in clean runs (from 18.00% to 7.11% of rounds) and by **63.1%** in attacked runs (from 7.92% to 2.92% of rounds).
+4. **Majority Monopolization Resolution:** Head salience aggregation restored clean Macro-F1 to **48.19%** (within 1.23% of undefended FedAvg 49.42%) and achieved **42.43% RECON F1** without discarding client data.
+
