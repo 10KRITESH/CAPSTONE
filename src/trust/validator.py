@@ -12,6 +12,7 @@ Returns structured ValidationResult per client update.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -38,6 +39,7 @@ class ValidationResult:
     per_class_f1_impact: dict[str, float]
     collusion_penalty: float = 0.0
     suspicious_flags: list[str] = field(default_factory=list)
+    peer_z_scores: dict[str, float] = field(default_factory=dict)
     validation_time_ms: float = 0.0
 
 
@@ -56,7 +58,13 @@ class UpdateValidator:
         server_val_loader: DataLoader,
         class_names: list[str],
         device: torch.device,
-        config: Optional[dict] = None,
+        config: dict | None = None,
+        detector_variant: str | None = None,
+        d1_min_support: int | None = None,
+        d2_z_thresh: float | None = None,
+        d3_calibrated_z_thresh: float | None = None,
+        d3_calibrated_impact_thresh: float | None = None,
+        oracle_client_support: dict[str | int, dict[str, int]] | None = None,
     ) -> None:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
@@ -66,6 +74,7 @@ class UpdateValidator:
         trust_cfg = cfg.get("trust", {})
         ev_cfg = trust_cfg.get("evidence", {})
         col_cfg = trust_cfg.get("collusion", {})
+        det_cfg = trust_cfg.get("detector", {})
 
         self.cosine_threshold = ev_cfg.get("cosine_threshold", -0.50)
         self.norm_z_extreme = ev_cfg.get("norm_z_extreme_threshold", 15.0)
@@ -74,6 +83,14 @@ class UpdateValidator:
         self.target_class_degradation_thresh = ev_cfg.get("target_class_degradation_threshold", -0.025)
         self.target_class_min_base_f1 = ev_cfg.get("target_class_min_base_f1", 0.15)
         self.collusion_flag_thresh = col_cfg.get("collusion_penalty_flag_threshold", 0.40)
+
+        # Detector variant configuration
+        self.detector_variant = detector_variant or det_cfg.get("variant", "D0")
+        self.d1_min_support = d1_min_support if d1_min_support is not None else det_cfg.get("d1_min_support", 100)
+        self.d2_z_thresh = d2_z_thresh if d2_z_thresh is not None else det_cfg.get("d2_z_thresh", 3.0)
+        self.d3_calibrated_z_thresh = d3_calibrated_z_thresh if d3_calibrated_z_thresh is not None else det_cfg.get("d3_calibrated_z_thresh", None)
+        self.d3_calibrated_impact_thresh = d3_calibrated_impact_thresh if d3_calibrated_impact_thresh is not None else det_cfg.get("d3_calibrated_impact_thresh", None)
+        self.oracle_client_support = oracle_client_support
 
         self.collusion_detector = SubClusterCollusionDetector(
             similarity_threshold=col_cfg.get("similarity_threshold", 0.88),
@@ -131,17 +148,12 @@ class UpdateValidator:
         base_macro_f1 = base_val_metrics["macro_f1"]
         base_class_f1 = {cls: m["f1"] for cls, m in base_val_metrics["per_class"].items()}
 
-        results: list[ValidationResult] = []
-
-        # 5. Validate each candidate client update
+        # 5. Evaluate semantic validation impacts for each candidate client update
+        candidate_evals = []
         for idx, (update, client_id, flat_u) in enumerate(zip(client_updates, client_ids, flat_updates)):
-            # Signal A: Cosine Similarity
             cos_sim = compute_cosine_similarity(flat_u, ref_flat)
-
-            # Signal B: Robust Norm Score (MAD Z-score)
             norm_val, z_score = compute_robust_norm_score(norms, idx)
 
-            # Signal C: Semantic Validation Impact
             probe_scale = 1.0 / max(1, len(client_updates))
             candidate_model = IDS_MLP(**global_model.config).to(self.device)
             cand_dict = {
@@ -157,9 +169,44 @@ class UpdateValidator:
                 cls: cand_val_metrics["per_class"][cls]["f1"] - base_class_f1[cls]
                 for cls in self.class_names
             }
-
-            # Collusion penalty for this client
             c_penalty = collusion_penalties.get(client_id, 0.0)
+
+            candidate_evals.append({
+                "client_id": client_id,
+                "norm_val": norm_val,
+                "norm_z_score": z_score,
+                "cosine_sim": cos_sim,
+                "global_impact": global_impact,
+                "per_class_impact": per_class_impact,
+                "collusion_penalty": c_penalty,
+            })
+
+        # Calculate peer-relative MAD z-scores per class across candidate clients
+        peer_z_scores_by_client: dict[int | str, dict[str, float]] = {c_id: {} for c_id in client_ids}
+        for cls in self.class_names:
+            cls_impacts = np.array([ce["per_class_impact"][cls] for ce in candidate_evals], dtype=float)
+            med = float(np.median(cls_impacts))
+            abs_dev = np.abs(cls_impacts - med)
+            mad = float(np.median(abs_dev))
+            scale = 1.4826 * mad
+            for ce in candidate_evals:
+                cid = ce["client_id"]
+                imp = ce["per_class_impact"][cls]
+                if scale < 1e-5:
+                    peer_z = 0.0
+                else:
+                    peer_z = float((imp - med) / scale)
+                peer_z_scores_by_client[cid][cls] = peer_z
+
+        results: list[ValidationResult] = []
+        for ce in candidate_evals:
+            client_id = ce["client_id"]
+            cos_sim = ce["cosine_sim"]
+            z_score = ce["norm_z_score"]
+            global_impact = ce["global_impact"]
+            c_penalty = ce["collusion_penalty"]
+            per_class_impact = ce["per_class_impact"]
+            client_peer_z = peer_z_scores_by_client[client_id]
 
             # Flag suspicious indicators
             flags = []
@@ -171,22 +218,51 @@ class UpdateValidator:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
             if c_penalty > self.collusion_flag_thresh:
                 flags.append("COORDINATED_COLLUSION_DETECTED")
+
             for cls, imp in per_class_impact.items():
-                if base_class_f1.get(cls, 0.0) >= self.target_class_min_base_f1 and imp < self.target_class_degradation_thresh:
-                    flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+                is_base_f1_valid = (base_class_f1.get(cls, 0.0) >= self.target_class_min_base_f1)
+                if not is_base_f1_valid:
+                    continue
+
+                if self.detector_variant == "D0":
+                    if imp < self.target_class_degradation_thresh:
+                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+
+                elif self.detector_variant == "D1":
+                    # ORACLE support gating (upper bound, not deployable)
+                    supp = 0
+                    if self.oracle_client_support is not None:
+                        supp = self.oracle_client_support.get(client_id, {}).get(cls, 0)
+                    if supp >= self.d1_min_support and imp < self.target_class_degradation_thresh:
+                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+
+                elif self.detector_variant == "D2":
+                    # Peer-relative scoring (deployable)
+                    z = client_peer_z[cls]
+                    if imp < self.target_class_degradation_thresh and z < -self.d2_z_thresh:
+                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
+
+                elif self.detector_variant == "D3":
+                    # Calibrated peer-relative scoring
+                    z = client_peer_z[cls]
+                    z_thresh = self.d3_calibrated_z_thresh if self.d3_calibrated_z_thresh is not None else self.d2_z_thresh
+                    imp_thresh = self.d3_calibrated_impact_thresh if self.d3_calibrated_impact_thresh is not None else self.target_class_degradation_thresh
+                    if imp < imp_thresh and z < -z_thresh:
+                        flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))
 
             res = ValidationResult(
                 client_id=client_id,
                 round_num=round_num,
-                norm_val=norm_val,
+                norm_val=ce["norm_val"],
                 norm_z_score=z_score,
                 cosine_sim=cos_sim,
                 global_f1_impact=global_impact,
                 per_class_f1_impact=per_class_impact,
                 collusion_penalty=c_penalty,
                 suspicious_flags=flags,
+                peer_z_scores=client_peer_z,
                 validation_time_ms=elapsed_ms,
             )
             results.append(res)

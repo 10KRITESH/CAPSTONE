@@ -130,6 +130,13 @@ case "$MODE" in
         reset_demo_state
         exit 0
         ;;
+    --results|results)
+        shift
+        TARGET_RUN_ID="${1:-step_d_evaluate}"
+        shift || true
+        $PYTHON_BIN src/experiments/aggregate_results.py --run-dir "results/runs/$TARGET_RUN_ID" "$@"
+        exit 0
+        ;;
     --sim|sim)
         run_sim "$@"
         exit 0

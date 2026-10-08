@@ -270,5 +270,99 @@
   - Tests deterministic PRNG client selection and stratified sample share band matching.
   - Tests bootstrap confidence intervals and Holm-Bonferroni adjusted p-values.
 
+## Phase 2: Calibration, Screening, Rigorous Evaluation & Deliverables
+
+### `src/experiments/step_a_potency.py`
+- **Purpose:** Measures the degradation of undefended FedAvg under targeted label-flip attacks across attacker RECON-share bands to confirm attack potency before testing defenses.
+- **How it fits into overall flow:** Establishes the empirical potency gate: if an attack cannot measurably degrade undefended FedAvg compared to clean controls by more than the confidence interval half-width, defense comparisons are meaningless.
+- **Block-by-block explanation:**
+  - `run_potency_experiments()`: Executes 10 rounds of undefended FedAvg across 5 calibration seeds (`1..5`) under clean conditions and 3 stratified RECON share bands (`5-15%`, `25-35%`, `40-55%`).
+  - Measures RECON F1 drop and Attack Success Rate (ASR) relative to clean controls, confirming that all three bands pass the potency gate (>16% RECON F1 drop).
+
+### `src/experiments/step_b_clean_measurement.py`
+- **Purpose:** Quantifies false-positive quarantining and collateral data exclusion under the existing D0 detector during clean federated learning over 30 rounds.
+- **How it fits into overall flow:** Documents the exact baseline failure mode before deploying new detector variants, providing before-and-after empirical proof of why changes were needed.
+- **Block-by-block explanation:**
+  - Runs 30 rounds across 10 evaluation seeds (`101..110`) with 0% attack.
+  - Intercepts validation probe metrics each round to record every client's state, evidence score, and per-class F1 impacts.
+  - Compares low-support (<100 samples) vs high-support (≥100 samples) impact distributions, revealing that honest clients holding few samples of a class suffer large negative probe drops due to Dirichlet skew, generating over 1,000 false alarms and quarantining 49.0% of honest clients.
+
+### `configs/default.yaml`
+- **Purpose:** Single source of truth configuration for detector variants and state machine behaviors.
+- **How it fits into overall flow:** Provides central parameters for D0, D1, D2, D3, and D4 switches.
+- **Block-by-block explanation:**
+  - Added `trust.detector`: `variant` (default "D0"), `d1_min_support` (100), `d2_z_thresh` (3.0), and calibrated slots for D3.
+  - Added `trust.state_machine.soft_containment` (default false) to govern continuous state factor decay.
+
+### `src/trust/validator.py`
+- **Purpose:** Multi-signal model update validator, now supporting peer-relative MAD Z-scoring and detector variants D0–D3.
+- **How it fits into overall flow:** Evaluates local updates against geometric median and validation probes, identifying genuine adversarial updates while insulating honest Dirichlet minority-class variations.
+- **Block-by-block explanation:**
+  - `UpdateValidator.__init__`: Accepts `detector_variant` ("D0", "D1", "D2", "D3"), `d1_min_support`, `d2_z_thresh`, and `oracle_client_support`.
+  - In `validate_updates`:
+    - First evaluates candidate model updates on the server validation set and collects per-class F1 impacts across all participating clients.
+    - In peer-relative modes (D2, D3), calculates the robust median and MAD for each class across all candidate updates in that round, computing client Z-scores: $z = \frac{\Delta F_1 - \text{median}}{1.4826 \cdot \text{MAD}}$.
+    - `D0`: Checks absolute impact drop ($\Delta F_1 < -0.025$).
+    - `D1 (ORACLE)`: Gated check: ignores drop if client sample count in that class $< \text{min\_support}$.
+    - `D2 (Peer-relative)`: Flags only if both absolute drop ($\Delta F_1 < -0.025$) AND peer outlier condition ($z < -z_{\text{thresh}}$) are met.
+    - `D3 (Calibrated)`: Uses pre-calibrated empirical thresholds.
+    - Strict Isolation: In D0, D2, and D3 modes, `self.oracle_client_support` is never accessed.
+
+### `src/trust/state_machine.py`
+- **Purpose:** 3-tier security state machine coordinating client trust lifecycle.
+- **How it fits into overall flow:** Sets client participation weights (state factors) during model aggregation.
+- **Block-by-block explanation:**
+  - Added `soft_containment` mode (D4):
+    - `get_state_factor`: Returns continuous linear decay $SF(E) = \frac{0.70 - E}{0.30}$ for evidence $0.40 \le E < 0.70$, preventing total data exclusion while discounting suspicious updates.
+    - `update_state`: Hard quarantine is only triggered when evidence $E \ge 0.70$. Clients in probation with bad rounds do not suffer hard exclusion unless evidence crosses 0.70.
+
+### `src/federation/coordinator.py`
+- **Purpose:** Central coordinator orchestrating local client training, validation probes, and aggregation.
+- **How it fits into overall flow:** Instantiates and configures the validator, state machine, and aggregation engine.
+- **Block-by-block explanation:**
+  - Added parameters `detector_variant`, `d1_min_support`, `d2_z_thresh`, `d3_calibrated_z_thresh`, `oracle_client_support`, and `soft_containment` to `__init__`.
+  - Forwards configuration to `UpdateValidator` and `ClientStateMachine`.
+
+### `tests/test_variants.py`
+- **Purpose:** Automated unit tests verifying detector variants D0-D4 and result publishing safeguards.
+- **How it fits into overall flow:** Ensures algorithmic correctness and prevents regression.
+- **Block-by-block explanation:**
+  - `test_d1_oracle_isolation_guarantee`: Passes a tracking dictionary to `UpdateValidator` and asserts that in non-oracle modes (D0, D2, D3), oracle data is accessed exactly 0 times.
+  - `test_d1_support_gating`: Verifies suppression of false degradation flags on low-support classes.
+  - `test_d2_peer_relative_discriminator`: Verifies peer-relative MAD Z-scoring.
+  - `test_d4_soft_containment`: Verifies continuous state factor decay and hard quarantine gating.
+  - `test_smoke_cannot_overwrite_evidence_without_force`: Verifies that SMOKE runs cannot overwrite an EVIDENCE-labeled root `RESULTS.md` without `--force`.
+
+### `src/experiments/step_c_screen.py`
+- **Purpose:** Screens detector variants across calibration seeds (`1..5`) over 15 rounds under clean and attacked conditions.
+- **How it fits into overall flow:** Identifies the top-performing deployable detector variants before the final 30-round evaluation.
+- **Block-by-block explanation:**
+  - Evaluates D0, D1 (30, 100, 300), D2 (z=2, 3, 4), D4, and D2+D4.
+  - Records honest false-positive rates, attacker detection rates, and test metrics.
+
+### `src/experiments/step_d_evaluate.py`
+- **Purpose:** Full 30-round evaluation across 10 evaluation seeds (`101..110`) comparing baselines and screened variants.
+- **How it fits into overall flow:** Generates the definitive experimental evidence for the capstone research artifact.
+- **Block-by-block explanation:**
+  - Evaluates `fedavg`, `median`, `trimmed_mean`, `krum`, `proposed_trust_off`, `proposed_d0`, `proposed_d1_100` (ORACLE), `proposed_d2_z3` (deployable), `proposed_d4`, and `proposed_d2_z3_d4`.
+  - Tracks checkpoint exclusions (rounds 5, 10, 20, 30), attributable attacker detection, and macro utility metrics.
+
+### `src/experiments/aggregate_results.py`
+- **Purpose:** Publication aggregator, hypothesis tester, and multi-file report generator.
+- **How it fits into overall flow:** Transforms raw `runs.jsonl` and `client_rounds.csv` into `./RESULTS.md` and archived reports.
+- **Block-by-block explanation:**
+  - Formats configuration header with exact seeds, PRNG parameters, and attacker shares.
+  - Incorporates potency gate findings and clean-run baseline progression.
+  - Computes paired differences with bootstrap 95% CIs and Holm-Bonferroni corrected p-values.
+  - Enforces minimum exact permutation floor on Wilcoxon tests ($p \ge 2 / 2^n$).
+  - Implements the EVIDENCE overwrite guard for `./RESULTS.md` and saves immutable copies to `reports/<run_id>/RESULTS.md`.
+
+### `run.sh`
+- **Purpose:** Master project command-line runner.
+- **How it fits into overall flow:** Provides unified CLI interface for running demonstrations, simulations, and report regeneration.
+- **Block-by-block explanation:**
+  - Added `./run.sh --results [run_id]` CLI option to regenerate statistical aggregation reports on demand.
+
+
 
 

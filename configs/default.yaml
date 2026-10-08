@@ -105,12 +105,20 @@ trust:
     target_class_degradation_threshold: -0.025 # Per-class F1 drop threshold
     target_class_min_base_f1: 0.15      # Minimum baseline F1 for per-class degradation check
 
+  detector:
+    variant: "D0"                       # options: D0 | D1 | D2 | D3
+    d1_min_support: 100                 # ORACLE: minimum samples for class to evaluate target degradation
+    d2_z_thresh: 3.0                    # Peer-relative MAD Z-score threshold (absolute value)
+    d3_calibrated_z_thresh: null        # Calibrated z threshold from calibration seeds
+    d3_calibrated_impact_thresh: null   # Calibrated impact threshold from calibration seeds
+
   state_machine:
     probation_threshold: 0.40           # Evidence E threshold for entering PROBATION
     quarantine_threshold: 0.70          # Evidence E threshold for entering QUARANTINED
     probation_consecutive_bad_threshold: 2 # Consecutive bad rounds in PROBATION -> QUARANTINED
     k1_recovery_rounds: 3               # Clean rounds to recover QUARANTINED -> PROBATION
     k2_recovery_rounds: 3               # Clean rounds to recover PROBATION -> TRUSTED
+    soft_containment: false             # D4 continuous state factor containment
     state_factors:
       trusted: 1.0
       probation_floor: 0.20

@@ -52,6 +52,7 @@ class ClientStateMachine:
         k2_recovery_rounds: int = 3,
         state_factors: Optional[dict[str, float]] = None,
         config: Optional[dict] = None,
+        soft_containment: bool = False,
     ) -> None:
         cfg = config or {}
         sm_cfg = cfg.get("trust", {}).get("state_machine", {})
@@ -61,6 +62,7 @@ class ClientStateMachine:
         self.probation_consecutive_bad_threshold = sm_cfg.get("probation_consecutive_bad_threshold", probation_consecutive_bad_threshold)
         self.k1_recovery_rounds = sm_cfg.get("k1_recovery_rounds", k1_recovery_rounds)
         self.k2_recovery_rounds = sm_cfg.get("k2_recovery_rounds", k2_recovery_rounds)
+        self.soft_containment = sm_cfg.get("soft_containment", soft_containment)
         
         default_sf = state_factors or {"trusted": 1.0, "probation_floor": 0.20, "quarantined": 0.0}
         self.state_factors_cfg = sm_cfg.get("state_factors", default_sf)
@@ -74,10 +76,26 @@ class ClientStateMachine:
     def get_state_factor(self, client_id: str | int, evidence_score: float) -> float:
         """
         Return participation weight multiplier [0.0, 1.0].
-        - TRUSTED: 1.0
-        - PROBATION: gradual state factor = max(probation_floor, 1.0 - evidence_score)
-        - QUARANTINED: 0.0 (excluded from aggregation)
+        - Under soft containment (D4):
+          - E < probation_threshold: 1.0
+          - E >= quarantine_threshold: 0.0
+          - probation_threshold <= E < quarantine_threshold:
+            continuous linear decay: (quarantine_threshold - E) / (quarantine_threshold - probation_threshold)
+        - Standard 3-tier:
+          - TRUSTED: 1.0
+          - PROBATION: gradual state factor = max(probation_floor, 1.0 - evidence_score)
+          - QUARANTINED: 0.0 (excluded from aggregation)
         """
+        if self.soft_containment:
+            if evidence_score < self.probation_threshold:
+                return float(self.state_factors_cfg.get("trusted", 1.0))
+            elif evidence_score >= self.quarantine_threshold:
+                return float(self.state_factors_cfg.get("quarantined", 0.0))
+            else:
+                span = max(1e-4, self.quarantine_threshold - self.probation_threshold)
+                continuous_factor = (self.quarantine_threshold - evidence_score) / span
+                return max(0.0, min(1.0, round(float(continuous_factor), 4)))
+
         state = self.get_state(client_id)
         if state == ClientState.TRUSTED:
             return float(self.state_factors_cfg.get("trusted", 1.0))
@@ -109,12 +127,21 @@ class ClientStateMachine:
         reason = "NO_CHANGE"
 
         # 1. Check demotion / escalation triggers
-        if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= self.probation_consecutive_bad_threshold):
-            new_state = ClientState.QUARANTINED
-            reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
-        elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
-            new_state = ClientState.PROBATION
-            reason = f"EVIDENCE_ELEVATED_E={E:.2f}"
+        if self.soft_containment:
+            # D4: Hard quarantine ONLY at E >= quarantine_threshold
+            if E >= self.quarantine_threshold:
+                new_state = ClientState.QUARANTINED
+                reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}"
+            elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
+                new_state = ClientState.PROBATION
+                reason = f"EVIDENCE_ELEVATED_E={E:.2f}"
+        else:
+            if E >= self.quarantine_threshold or (current_state == ClientState.PROBATION and bad >= self.probation_consecutive_bad_threshold):
+                new_state = ClientState.QUARANTINED
+                reason = f"HIGH_EVIDENCE_SCORE_E={E:.2f}" if E >= self.quarantine_threshold else f"PROBATION_VIOLATION_BAD_ROUNDS={bad}"
+            elif E >= self.probation_threshold and current_state == ClientState.TRUSTED:
+                new_state = ClientState.PROBATION
+                reason = f"EVIDENCE_ELEVATED_E={E:.2f}"
 
         # 2. Check Shadow Recovery triggers for QUARANTINED or PROBATION clients
         if current_state == ClientState.QUARANTINED:

@@ -72,6 +72,13 @@ class FLCoordinator:
         disable_state_factor: bool = False,
         db_path: str | Path | None = None,
         ledger_path: str | Path | None = None,
+        detector_variant: str | None = None,
+        d1_min_support: int | None = None,
+        d2_z_thresh: float | None = None,
+        d3_calibrated_z_thresh: float | None = None,
+        d3_calibrated_impact_thresh: float | None = None,
+        oracle_client_support: dict | None = None,
+        soft_containment: bool | None = None,
     ) -> None:
         self.config = config
         self.clients = clients
@@ -109,12 +116,24 @@ class FLCoordinator:
             lm_cfg = yaml.safe_load(f)
         self.class_names = [lm_cfg["idx_to_class"][i] for i in range(len(lm_cfg["idx_to_class"]))]
 
-        # Instantiate Trust & Audit Engine components using unified config
-        self.validator = UpdateValidator(self.server_val_loader, self.class_names, self.device, config=self.config)
+        # Instantiate Trust & Audit Engine components using unified config & variant overrides
+        self.validator = UpdateValidator(
+            self.server_val_loader,
+            self.class_names,
+            self.device,
+            config=self.config,
+            detector_variant=detector_variant,
+            d1_min_support=d1_min_support,
+            d2_z_thresh=d2_z_thresh,
+            d3_calibrated_z_thresh=d3_calibrated_z_thresh,
+            d3_calibrated_impact_thresh=d3_calibrated_impact_thresh,
+            oracle_client_support=oracle_client_support,
+        )
         self.rep_manager = PerClassReputationManager(self.class_names, config=self.config)
         self.cold_start = ColdStartManager()
         self.evidence_tracker = TemporalEvidenceTracker(config=self.config)
-        self.state_machine = ClientStateMachine(config=self.config)
+        sm_soft = soft_containment if soft_containment is not None else self.config.get("trust", {}).get("state_machine", {}).get("soft_containment", False)
+        self.state_machine = ClientStateMachine(config=self.config, soft_containment=sm_soft)
 
         self.db_repo = AuditRepository(db_path or "data/audit.db")
         self.bc_client = BlockchainClient(ledger_path=ledger_path)

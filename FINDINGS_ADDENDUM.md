@@ -237,3 +237,58 @@ Conducted 10 rounds of training across 3 seeds (`42`, `100`, `2024`) comparing m
 2. **Did attackers' flags differ between clean and attacked runs?**
    - **YES, dramatically.** In clean runs, client 1 had 0 RECON flags across all 10 rounds for all 3 seeds. In attacked runs, client 1 was consistently flagged for `TARGET_CLASS_DEGRADATION_RECON` on virtually every round starting from Round 3.
 
+---
+
+# Part 3: Phase 2 Empirical Baseline & Calibration Measurements
+
+## B1. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, 10 Rounds, 5 Calibration Seeds)
+
+Evaluated undefended FedAvg across calibration seeds `1..5` under clean conditions and across three stratified RECON-share bands for targeted label-flip attack (RECON $\to$ BENIGN, 2 attackers):
+
+| Scenario / Band | Attacker RECON Share | RECON F1 (Mean [95% CI]) | RECON F1 Drop | Attack Success Rate (ASR) | Potency Gate Status |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Clean Control** | 0.0% | 43.88% [42.2%, 45.4%] | — | 11.54% [10.2%, 12.9%] | Baseline |
+| **Band 1 (5–15%)** | 11.23% | 27.43% [13.7%, 35.3%] | **16.45%** | 18.11% [12.1%, 27.8%] | **PASS** (> CI width) |
+| **Band 2 (25–35%)**| 24.46% | 27.47% [22.0%, 33.0%] | **16.41%** | 1.92% [0.1%, 5.4%] | **PASS** (> CI width) |
+| **Band 3 (40–55%)**| 41.53% | 28.92% [17.4%, 40.5%] | **14.95%** | 11.00% [9.3%, 12.6%] | **PASS** (> CI width) |
+
+**Conclusion:** All three bands produce statistically significant degradation (>14% drop in RECON F1). Band 1 (5–15% RECON share) is selected as the primary test scenario for detector screening and final evaluation.
+
+---
+
+## B2. Step B: "Before" False-Positive Baseline Measurement (D0, 30 Rounds, 10 Evaluation Seeds: 101..110)
+
+Executed 300 total rounds of clean FL (0% attack) using the existing D0 detector on separate evaluation seeds (`101..110`):
+
+### Headline Exclusion Metrics (Clean Run, D0 Baseline):
+- **Mean Honest Quarantined Clients:** **4.9 / 10 (49.0%)** [range: 40% to 60%]
+- **Mean Honest Training Samples Excluded:** **255,695 (71.8%)**
+- **Mean RECON Samples Excluded:** **2,038 (32.5%)**
+- **Mean Time to First Quarantine:** **8.3 rounds** (rarely before round 5)
+
+### Progression of Collateral Exclusion by Round:
+| Round | Mean in Probation | Mean Quarantined | Honest Data Exclusion (%) | Honest RECON Exclusion (%) |
+| :---: | :---: | :---: | :---: | :---: |
+| **1**  | 0.0 | 0.0 | 0.0% | 0.0% |
+| **5**  | 1.0 | 0.2 | 0.6% | 1.6% |
+| **10** | 1.9 | 1.8 | 24.8% | 11.8% |
+| **15** | 0.9 | 2.9 | 45.0% | 16.9% |
+| **20** | 1.7 | 3.8 | 55.1% | 24.0% |
+| **25** | 0.9 | 5.0 | 71.4% | 35.3% |
+| **30** | 1.0 | 4.9 | 71.8% | 32.5% |
+
+### Breakdown of Probe Degradation by True Class Support:
+| Class | Low-Support (<100) F1 Impact Mean (Std) | High-Support (≥100) F1 Impact Mean (Std) | Flags Fired (Low-Support) | Flags Fired (High-Support) |
+| :--- | :---: | :---: | :---: | :---: |
+| **BENIGN** | -0.0593 (±0.072) | +0.0173 (±0.063) | **388** | 103 |
+| **MITM**   | -0.0086 (±0.055) | +0.0051 (±0.018) | **257** | 17 |
+| **WEBAPP** | -0.0242 (±0.076) | +0.0150 (±0.030) | **236** | 5 |
+| **DOS**    | -0.0055 (±0.021) | +0.0066 (±0.026) | **124** | 1 |
+| **MALWARE**| +0.0039 (±0.034) | +0.0017 (±0.021) | 52 | 67 |
+| **DDOS**   | N/A | +0.0017 (±0.018) | 0 | 87 |
+| **MIRAI**  | +0.0016 (±0.010) | +0.0017 (±0.017) | 0 | 8 |
+| **RECON**  | -0.0044 (±0.019) | +0.0018 (±0.014) | **2** | 0 |
+
+**Empirical Takeaway:** In clean federated learning, clients holding few samples of a class suffer negative probe impacts simply due to non-IID data distribution, not malice. Across 300 rounds, 1,007 false flags were fired on low-support classes, triggering cascade quarantines that stripped 71.8% of honest training data.
+
+
