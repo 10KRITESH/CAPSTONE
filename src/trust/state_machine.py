@@ -62,7 +62,7 @@ class ClientStateMachine:
         self.probation_consecutive_bad_threshold = sm_cfg.get("probation_consecutive_bad_threshold", probation_consecutive_bad_threshold)
         self.k1_recovery_rounds = sm_cfg.get("k1_recovery_rounds", k1_recovery_rounds)
         self.k2_recovery_rounds = sm_cfg.get("k2_recovery_rounds", k2_recovery_rounds)
-        self.soft_containment = sm_cfg.get("soft_containment", soft_containment)
+        self.soft_containment = bool(soft_containment) if soft_containment is not None else bool(sm_cfg.get("soft_containment", False))
         
         default_sf = state_factors or {"trusted": 1.0, "probation_floor": 0.20, "quarantined": 0.0}
         self.state_factors_cfg = sm_cfg.get("state_factors", default_sf)

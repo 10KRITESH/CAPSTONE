@@ -40,20 +40,152 @@ def get_git_commit() -> str:
         return "unknown"
 
 
-def bootstrap_ci(data: list[float] | np.ndarray, n_boot: int = 5000, ci: float = 0.95) -> tuple[float, float, float]:
-    """Computes mean and [lower, upper] empirical bootstrap confidence interval."""
-    arr = np.asarray(data)
+def bootstrap_ci(
+    data: list[float] | np.ndarray,
+    n_boot: int = 5000,
+    ci: float = 0.95,
+    clusters: list[Any] | np.ndarray | None = None,
+) -> tuple[float, float, float]:
+    """
+    Computes mean and [lower, upper] empirical bootstrap confidence interval.
+    Supports cluster bootstrap when clusters is provided with >= 2 distinct clusters.
+    """
+    arr = np.asarray(data, dtype=float)
     if len(arr) == 0:
         return 0.0, 0.0, 0.0
     if len(arr) == 1:
         return float(arr[0]), float(arr[0]), float(arr[0])
 
     rng = np.random.default_rng(42)
-    boot_means = [np.mean(rng.choice(arr, size=len(arr), replace=True)) for _ in range(n_boot)]
+
+    if clusters is not None:
+        clusters = np.asarray(clusters)
+        unique_clusters = np.unique(clusters)
+        if len(unique_clusters) >= 2:
+            boot_means = []
+            for _ in range(n_boot):
+                sampled_clusters = rng.choice(unique_clusters, size=len(unique_clusters), replace=True)
+                sample_indices = np.concatenate([np.where(clusters == c)[0] for c in sampled_clusters])
+                boot_means.append(float(np.mean(arr[sample_indices])))
+            alpha = (1.0 - ci) / 2.0
+            low = float(np.percentile(boot_means, alpha * 100))
+            high = float(np.percentile(boot_means, (1.0 - alpha) * 100))
+            return float(np.mean(arr)), low, high
+
+    boot_means = [float(np.mean(rng.choice(arr, size=len(arr), replace=True))) for _ in range(n_boot)]
     alpha = (1.0 - ci) / 2.0
     low = float(np.percentile(boot_means, alpha * 100))
     high = float(np.percentile(boot_means, (1.0 - alpha) * 100))
     return float(np.mean(arr)), low, high
+
+
+def compute_potency_report(df_pot: pd.DataFrame) -> list[dict[str, Any]]:
+    """
+    Computes paired potency metrics (attacked minus clean per unit of replication).
+    Replication unit is (partition_seed, train_seed) or train_seed.
+    Calculates realized attacker RECON share, sample share, paired ASR delta, paired RECON F1 drop.
+    Automatic gate: targeted attack PASS iff ASR delta CI lower > 0 AND RECON F1 drop CI lower > 0.
+    Never outputs 'BASELINE'. Returns PASS or FAIL.
+    """
+    df = df_pot.copy()
+    if "scenario" in df.columns:
+        df["scenario"] = df["scenario"].apply(lambda s: "clean" if str(s).lower() in ["clean", "clean_control"] else str(s))
+    elif "attack" in df.columns:
+        df["scenario"] = df["attack"].apply(lambda a: "clean" if str(a).lower() in ["clean", "clean_control"] else "attacked")
+    else:
+        df["scenario"] = "clean"
+
+    if "partition_seed" not in df.columns:
+        df["partition_seed"] = 42
+    if "attacker_recon_share" not in df.columns:
+        df["attacker_recon_share"] = df.get("attacker_source_share", 0.0)
+
+    df["rep_key"] = df.apply(lambda r: f"{r['partition_seed']}_{r['train_seed']}", axis=1)
+
+    is_clean = (df["scenario"] == "clean") | (df.get("attack", pd.Series([""] * len(df))) == "clean")
+    clean_df = df[is_clean]
+    clean_map = {r["rep_key"]: r for _, r in clean_df.iterrows()}
+    clean_seed_map = {r["train_seed"]: r for _, r in clean_df.iterrows()}
+
+    attacked_df = df[~is_clean]
+    if attacked_df.empty:
+        return []
+
+    if "attacker_mode" in attacked_df.columns and len(attacked_df["attacker_mode"].unique()) > 1:
+        group_col = "attacker_mode"
+    elif "attack" in attacked_df.columns and len(attacked_df["attack"].unique()) > 1:
+        group_col = "attack"
+    else:
+        group_col = "scenario"
+
+    potency_rows = []
+    for sc, grp in attacked_df.groupby(group_col):
+        paired_asr_deltas = []
+        paired_recon_drops = []
+        paired_macro_drops = []
+        recon_shares = []
+        sample_shares = []
+        cluster_ids = []
+
+        for _, atk_row in grp.iterrows():
+            rk = atk_row["rep_key"]
+            s_val = atk_row["train_seed"]
+            cln_row = clean_map.get(rk, clean_seed_map.get(s_val))
+
+            if cln_row is None:
+                cln_asr = float(clean_df["asr"].mean()) if "asr" in clean_df and not clean_df["asr"].isna().all() else 0.0
+                cln_rf1 = float(clean_df["recon_f1"].mean()) if "recon_f1" in clean_df and not clean_df["recon_f1"].isna().all() else 0.0
+                cln_mf1 = float(clean_df["macro_f1"].mean()) if "macro_f1" in clean_df and not clean_df["macro_f1"].isna().all() else 0.0
+            else:
+                cln_asr = float(cln_row.get("asr", cln_row.get("attack_success_rate", 0.0)))
+                cln_rf1 = float(cln_row.get("recon_f1", 0.0))
+                cln_mf1 = float(cln_row.get("macro_f1", 0.0))
+
+            atk_asr = float(atk_row.get("asr", atk_row.get("attack_success_rate", 0.0)))
+            atk_rf1 = float(atk_row.get("recon_f1", 0.0))
+            atk_mf1 = float(atk_row.get("macro_f1", 0.0))
+
+            delta_asr = float(atk_asr - cln_asr)
+            recon_drop = float(cln_rf1 - atk_rf1)
+            macro_drop = float(cln_mf1 - atk_mf1)
+
+            paired_asr_deltas.append(delta_asr)
+            paired_recon_drops.append(recon_drop)
+            paired_macro_drops.append(macro_drop)
+            recon_shares.append(float(atk_row.get("attacker_recon_share", 0.0)))
+            sample_shares.append(float(atk_row.get("attacker_sample_share", 0.0)))
+            cluster_ids.append(atk_row["partition_seed"])
+
+        n_pairs = len(paired_asr_deltas)
+        clusters = cluster_ids if len(set(cluster_ids)) > 1 else None
+
+        rec_m, rec_l, rec_h = bootstrap_ci(recon_shares, clusters=clusters)
+        samp_m, _, _ = bootstrap_ci(sample_shares, clusters=clusters)
+        asr_d_m, asr_d_l, asr_d_h = bootstrap_ci(paired_asr_deltas, clusters=clusters)
+        rf_drop_m, rf_drop_l, rf_drop_h = bootstrap_ci(paired_recon_drops, clusters=clusters)
+
+        is_targeted = any("targeted" in str(x).lower() for x in [sc, grp["attack"].iloc[0] if "attack" in grp else ""])
+        if is_targeted:
+            passed = (asr_d_l > 0.0) and (rf_drop_l > 0.0)
+        else:
+            _, mf_drop_l, _ = bootstrap_ci(paired_macro_drops, clusters=clusters)
+            passed = (mf_drop_l > 0.0)
+
+        gate_status = "**PASS**" if passed else "**FAIL**"
+
+        potency_rows.append({
+            "scenario": sc,
+            "n": n_pairs,
+            "mean_sample_share": samp_m,
+            "mean_recon_share": rec_m,
+            "recon_share_ci": (rec_l, rec_h),
+            "paired_recon_drop_m": rf_drop_m,
+            "paired_recon_drop_ci": (rf_drop_l, rf_drop_h),
+            "paired_asr_delta_m": asr_d_m,
+            "paired_asr_delta_ci": (asr_d_l, asr_d_h),
+            "gate_status": gate_status,
+        })
+    return potency_rows
 
 
 def paired_statistical_test(diffs: list[float]) -> tuple[str, int, float, float]:
@@ -184,6 +316,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
     lines.append("")
 
     # Section 2: Step A Potency Gate
+    pot_df_to_use = None
     potency_jsonl = Path("results/runs/step_a_potency/runs.jsonl")
     if potency_jsonl.exists():
         p_recs = []
@@ -191,22 +324,24 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
             for l in f:
                 if l.strip():
                     p_recs.append(json.loads(l))
-        df_pot = pd.DataFrame(p_recs)
-        lines.append("## 2. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, 10 Rounds)")
-        lines.append("| Scenario / Band | Mean RECON Share | RECON F1 (Mean [95% CI]) | RECON F1 Drop | ASR (Mean [95% CI]) | Gate Status |")
-        lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
-        for sc in sorted(df_pot["scenario"].unique()):
-            sub = df_pot[df_pot["scenario"] == sc]
-            rf_m, rf_l, rf_h = bootstrap_ci(sub["recon_f1"].tolist())
-            asr_m, asr_l, asr_h = bootstrap_ci(sub["asr"].tolist())
-            r_drop = sub["recon_f1_drop"].mean() if "recon_f1_drop" in sub else 0.0
-            r_share = sub["attacker_recon_share"].mean() if "attacker_recon_share" in sub else 0.0
-            status = "**PASS**" if r_drop > 0.05 else "BASELINE"
-            lines.append(
-                f"| `{sc}` | {r_share*100:.1f}% | {rf_m*100:.1f}% [{rf_l*100:.1f}%, {rf_h*100:.1f}%] | "
-                f"{r_drop*100:.1f}% | {asr_m*100:.1f}% [{asr_l*100:.1f}%, {asr_h*100:.1f}%] | {status} |"
-            )
-        lines.append("")
+        pot_df_to_use = pd.DataFrame(p_recs)
+    else:
+        fedavg_df = df[df["method"] == "fedavg"]
+        if not fedavg_df.empty and len(fedavg_df["scenario"].unique()) > 1:
+            pot_df_to_use = fedavg_df
+
+    if pot_df_to_use is not None and not pot_df_to_use.empty:
+        pot_rows = compute_potency_report(pot_df_to_use)
+        if pot_rows:
+            lines.append("## 2. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, Paired Controls)")
+            lines.append("| Scenario / Band | Realized RECON Share | Paired RECON F1 Drop [95% CI] | Paired ASR Delta [95% CI] | Gate Status |")
+            lines.append("| :--- | :---: | :---: | :---: | :---: |")
+            for pr in pot_rows:
+                rec_s = f"{pr['mean_recon_share']*100:.1f}% [{pr['recon_share_ci'][0]*100:.1f}%, {pr['recon_share_ci'][1]*100:.1f}%]"
+                rf_d = f"{pr['paired_recon_drop_m']*100:+.1f}% [{pr['paired_recon_drop_ci'][0]*100:.1f}%, {pr['paired_recon_drop_ci'][1]*100:.1f}%]"
+                asr_d = f"{pr['paired_asr_delta_m']*100:+.1f}% [{pr['paired_asr_delta_ci'][0]*100:.1f}%, {pr['paired_asr_delta_ci'][1]*100:.1f}%]"
+                lines.append(f"| `{pr['scenario']}` | {rec_s} | {rf_d} | {asr_d} | {pr['gate_status']} |")
+            lines.append("")
 
     # Section 3: Step B Clean-Run False-Positive Progression
     clean_curve_path = Path("results/runs/step_b_clean/clean_round_exclusion_curve.csv")
@@ -249,7 +384,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
         a_det_p = m_atk["attackers_detected_probation"].mean() / 2.0 * 100 if not m_atk.empty else 0.0
         q_prec = m_atk["quarantine_precision"].mean() * 100 if not m_atk.empty else 100.0
 
-        m_type = "ORACLE" if "d1" in m else ("Baseline" if m in ["fedavg", "median", "trimmed_mean", "krum"] else "Deployable")
+        m_type = "ORACLE" if "d1" in m else ("Baseline" if m in ["fedavg", "median", "trimmed_mean", "krum", "detector_log_only"] else "Deployable")
 
         lines.append(
             f"| `{m}` | {m_type} | {c_f1_m*100:.1f}% [{c_f1_l*100:.1f}%, {c_f1_h*100:.1f}%] | "
@@ -262,10 +397,10 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
 
     # Section 5: Paired Differences vs Baselines & Hypothesis Testing
     lines.append("## 5. Paired Hypothesis Testing vs. Baselines (Attacked Condition)")
-    lines.append("| Proposed Variant | Baseline Compared | F1 Difference [95% CI] | Test Used | n | Raw p | Holm-Adjusted p | Outcome |")
+    lines.append("| Proposed Variant | Baseline Compared | F1 Difference [95% CI] | Test Used | Unit & n | Raw p | Holm-Adjusted p | Outcome |")
     lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
 
-    baselines_pool = ["fedavg", "median", "trimmed_mean", "krum"]
+    baselines_pool = ["fedavg", "median", "trimmed_mean", "krum", "detector_log_only"]
     prop_variants = [m for m in methods_run if m.startswith("proposed_")]
 
     paired_test_rows = []
@@ -301,7 +436,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
                 "diff_m": d_m,
                 "diff_ci": f"[{d_l*100:.1f}%, {d_h*100:.1f}%]",
                 "test": t_name,
-                "n": n_pairs,
+                "unit_n": f"seed (n={n_pairs})",
                 "raw_p": p_val,
             })
 
@@ -311,7 +446,7 @@ def analyze_run_results(run_dir: str | Path, force: bool = False) -> None:
             outcome = "WIN" if (adj_p < 0.05 and row["diff_m"] > 0) else ("LOSS" if (adj_p < 0.05 and row["diff_m"] < 0) else "TIE")
             lines.append(
                 f"| `{row['variant']}` | `{row['baseline']}` | {row['diff_m']*100:+.2f}% {row['diff_ci']} | "
-                f"{row['test']} | {row['n']} | {row['raw_p']:.4f} | {adj_p:.4f} | **{outcome}** |"
+                f"{row['test']} | {row['unit_n']} | {row['raw_p']:.4f} | {adj_p:.4f} | **{outcome}** |"
             )
     lines.append("")
 

@@ -173,6 +173,85 @@ class TestDetectorVariants(unittest.TestCase):
         self.assertEqual(state_high, ClientState.QUARANTINED)
         self.assertIn("HIGH_EVIDENCE_SCORE", reason_high)
 
+    def test_d4_soft_containment_changes_aggregation_weights(self):
+        """D4 soft containment alters aggregation state factors and model updates relative to standard 3-tier."""
+        from src.federation.trust_aggregation import aggregate_trust_class_aware
+
+        updates = [{k: torch.randn_like(v) * 0.05 for k, v in self.global_model.state_dict().items()} for _ in range(3)]
+        sample_counts = [1000, 1000, 1000]
+        client_ids = [0, 1, 2]
+        rep_table = {c: {cls: 1.0 for cls in self.class_names} for c in client_ids}
+
+        # D0 State factors (client 0 in standard probation floor 0.20)
+        sf_d0 = {0: 0.20, 1: 1.0, 2: 1.0}
+        # D4 State factors (client 0 with continuous linear decay SF = (0.70 - 0.50)/0.30 = 0.6667)
+        sf_d4 = {0: 0.6667, 1: 1.0, 2: 1.0}
+
+        agg_d0, _ = aggregate_trust_class_aware(
+            self.global_model, updates, sample_counts, client_ids, rep_table, sf_d0, self.class_names
+        )
+        agg_d4, _ = aggregate_trust_class_aware(
+            self.global_model, updates, sample_counts, client_ids, rep_table, sf_d4, self.class_names
+        )
+
+        diffs = [torch.max(torch.abs(agg_d0[k] - agg_d4[k])).item() for k in agg_d0 if torch.is_floating_point(agg_d0[k])]
+        max_diff = max(diffs)
+        self.assertGreater(max_diff, 1e-4, "D4 soft containment must produce numerically distinct aggregated weights!")
+
+    def test_detector_log_only_equals_fedavg(self):
+        """detector_log_only must produce global model weights identical to fedavg within 1e-6 tolerance."""
+        from src.federation.coordinator import FLCoordinator
+        import copy
+        import yaml
+
+        with open("configs/default.yaml") as f:
+            cfg = yaml.safe_load(f)
+
+        # Mock dummy clients
+        class DummyClient:
+            def __init__(self, cid, updates_dict):
+                self.client_id = cid
+                self.attack = None
+                self._update = updates_dict
+
+            def train_local(self, **kwargs):
+                return copy.deepcopy(self._update), 1000, {"loss": 0.5, "accuracy": 0.9}
+
+        fixed_updates = [{k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()} for _ in range(3)]
+        clients_fedavg = [DummyClient(i, fixed_updates[i]) for i in range(3)]
+        clients_logonly = [DummyClient(i, fixed_updates[i]) for i in range(3)]
+
+        coord_fedavg = FLCoordinator(
+            config=cfg,
+            clients=clients_fedavg,
+            server_val_ds=self.val_loader.dataset,
+            test_ds=self.val_loader.dataset,
+            aggregation_method="fedavg",
+            device=self.device,
+        )
+        coord_fedavg.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+
+        coord_logonly = FLCoordinator(
+            config=cfg,
+            clients=clients_logonly,
+            server_val_ds=self.val_loader.dataset,
+            test_ds=self.val_loader.dataset,
+            aggregation_method="detector_log_only",
+            device=self.device,
+        )
+        coord_logonly.global_model.load_state_dict(copy.deepcopy(self.global_model.state_dict()))
+
+        # Run 1 round on both
+        coord_fedavg.run_round(round_num=1)
+        coord_logonly.run_round(round_num=1)
+
+        dict_fedavg = coord_fedavg.global_model.state_dict()
+        dict_logonly = coord_logonly.global_model.state_dict()
+
+        for k in dict_fedavg:
+            diff = torch.max(torch.abs(dict_fedavg[k] - dict_logonly[k])).item()
+            self.assertLess(diff, 1e-6, f"Layer {k} differed between detector_log_only and fedavg by {diff} >= 1e-6!")
+
 
 class TestRootResultsProtection(unittest.TestCase):
     def test_smoke_cannot_overwrite_evidence_without_force(self):

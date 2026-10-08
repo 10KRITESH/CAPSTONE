@@ -79,8 +79,21 @@ class AttackerSelector:
         self.total_samples = sum(self.client_samples.values())
         self.total_source_samples = sum(self.client_source_samples.values())
 
-    def select_random(self, num_malicious: int, attacker_seed: int) -> dict[str, Any]:
-        """Select attackers randomly via seeded RNG."""
+    def select_random(
+        self,
+        num_malicious: int,
+        attacker_seed: int,
+        used_attacker_sets: set[tuple[int, ...]] | None = None,
+    ) -> dict[str, Any]:
+        """Select attackers randomly via seeded RNG, ensuring uniqueness if used_attacker_sets is given."""
+        all_combos = list(itertools.combinations(range(len(self.partition_files)), num_malicious))
+        rng = np.random.default_rng(attacker_seed)
+        rng.shuffle(all_combos)
+        for combo in all_combos:
+            combo_tuple = tuple(sorted(combo))
+            if used_attacker_sets is not None and combo_tuple in used_attacker_sets:
+                continue
+            return self._build_metadata(list(combo), mode="random", seed=attacker_seed)
         chosen_ids = select_malicious_clients(len(self.partition_files), num_malicious, attacker_seed)
         return self._build_metadata(chosen_ids, mode="random", seed=attacker_seed)
 
@@ -89,10 +102,12 @@ class AttackerSelector:
         target_band: tuple[float, float],
         num_malicious: int = 2,
         seed: int = 42,
+        used_attacker_sets: set[tuple[int, ...]] | None = None,
     ) -> dict[str, Any]:
         """
         Select attacker combination whose combined source-class (RECON)
         share falls within target_band [min_share, max_share].
+        Guarantees distinct attacker set if used_attacker_sets is provided.
         """
         min_share, max_share = target_band
         candidates = []
@@ -103,15 +118,25 @@ class AttackerSelector:
         rng.shuffle(all_combos)
 
         for combo in all_combos:
+            combo_tuple = tuple(sorted(combo))
+            if used_attacker_sets is not None and combo_tuple in used_attacker_sets:
+                continue
             combo_source = sum(self.client_source_samples[c] for c in combo)
             share = combo_source / max(1, self.total_source_samples)
             if min_share <= share <= max_share:
+                if used_attacker_sets is not None:
+                    assert combo_tuple not in used_attacker_sets, f"Attacker set {combo_tuple} was already used!"
                 return self._build_metadata(list(combo), mode=f"stratified_{min_share*100:.0f}_{max_share*100:.0f}", seed=seed)
             candidates.append((abs(share - ((min_share + max_share) / 2.0)), list(combo)))
 
-        # Fallback to closest match if exact band wasn't met
+        # Fallback to closest match among unused combos
+        if not candidates:
+            raise RuntimeError(f"No unused attacker combinations remaining among {len(all_combos)} total combos!")
         candidates.sort(key=lambda x: x[0])
         best_combo = candidates[0][1]
+        best_tuple = tuple(sorted(best_combo))
+        if used_attacker_sets is not None:
+            assert best_tuple not in used_attacker_sets, f"Attacker set {best_tuple} was already used in fallback!"
         return self._build_metadata(best_combo, mode=f"stratified_closest_{min_share*100:.0f}_{max_share*100:.0f}", seed=seed)
 
     def _build_metadata(self, chosen_ids: list[int], mode: str, seed: int) -> dict[str, Any]:
@@ -220,12 +245,14 @@ class ExperimentHarness:
         self,
         config_path: str = "configs/default.yaml",
         split: str = "dev",
+        partition_seed: int | None = None,
         run_id: str | None = None,
     ):
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
         self.split = split
+        self.partition_seed = partition_seed or self.config.get("project", {}).get("seeds", {}).get("partition_seed", 42)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.run_id = run_id or f"run_{int(time.time())}"
         self.run_dir = Path("results/runs") / self.run_id
@@ -236,10 +263,16 @@ class ExperimentHarness:
 
         # Load datasets
         processed_dir = Path("data/processed") / split
-        partitions_dir = Path("data/partitions") / split
+        seed_part_dir = Path("data/partitions") / split / f"seed_{self.partition_seed}"
+        if seed_part_dir.exists():
+            partitions_dir = seed_part_dir
+        else:
+            partitions_dir = Path("data/partitions") / split
+
         self.server_val_ds = CICIoTDataset(processed_dir / "server_val.parquet")
         self.test_ds = CICIoTDataset(processed_dir / "test.parquet")
         self.partition_files = sorted(partitions_dir.glob("client_*.parquet"))
+        assert len(self.partition_files) > 0, f"No client partition files found in {partitions_dir}"
         self.feature_cols = self.server_val_ds.feature_cols
 
         with open(self.config["paths"]["label_mapping"]) as f:
@@ -257,7 +290,7 @@ class ExperimentHarness:
                     if line.strip():
                         try:
                             d = json.loads(line)
-                            k = f"{d['method']}__{d['attack']}__{d['train_seed']}__{d.get('attacker_mode', 'random')}"
+                            k = f"{d['method']}__{d['attack']}__{d.get('partition_seed', 42)}__{d['train_seed']}__{d.get('attacker_mode', 'random')}"
                             keys.add(k)
                         except Exception:
                             pass
@@ -273,12 +306,12 @@ class ExperimentHarness:
         init_weights: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, Any]:
         """Executes one simulation run and logs results incrementally."""
-        key = f"{method}__{attack_name}__{train_seed}__{attacker_info['mode']}"
+        key = f"{method}__{attack_name}__{self.partition_seed}__{train_seed}__{attacker_info['mode']}"
         if key in self.completed_keys:
             log.info(f"Skipping already completed run: {key}")
             return {}
 
-        log.info(f"\n{'─'*70}\n  LAUNCHING: {method} | Attack: {attack_name} | Seed: {train_seed} | Mode: {attacker_info['mode']}\n{'─'*70}")
+        log.info(f"\n{'─'*70}\n  LAUNCHING: {method} | Attack: {attack_name} | Partition Seed: {self.partition_seed} | Train Seed: {train_seed} | Mode: {attacker_info['mode']}\n{'─'*70}")
         seed_everything(train_seed)
         t_start = time.time()
 
@@ -306,13 +339,11 @@ class ExperimentHarness:
         dis_sf = False
         if method == "proposed":
             coord_method = "trust_class_aware"
-        elif method == "proposed_trust_off":
-            coord_method = "trust_class_aware"
-            dis_hb = True
-            dis_sf = True
+        elif method == "detector_log_only":
+            coord_method = "detector_log_only"
 
-        db_path = self.run_dir / f"audit_{train_seed}_{method}_{attack_name}.db"
-        ledger_path = self.run_dir / f"ledger_{train_seed}_{method}_{attack_name}.json"
+        db_path = self.run_dir / f"audit_{self.partition_seed}_{train_seed}_{method}_{attack_name}.db"
+        ledger_path = self.run_dir / f"ledger_{self.partition_seed}_{train_seed}_{method}_{attack_name}.json"
 
         coordinator = FLCoordinator(
             config=self.config,
@@ -437,10 +468,12 @@ class ExperimentHarness:
             "objective": spec["objective"],
             "headline_metric_name": spec["headline_metric"],
             "train_seed": train_seed,
+            "partition_seed": self.partition_seed,
             "attacker_mode": attacker_info["mode"],
             "attacker_ids": malicious_ids,
             "attacker_sample_share": attacker_info.get("sample_share", 0.0),
             "attacker_source_share": attacker_info.get("source_sample_share", 0.0),
+            "attacker_recon_share": attacker_info.get("source_sample_share", 0.0),
             # Primary Performance Metrics
             "accuracy_footnote": round(float(test_metrics["accuracy"]), 4),
             "balanced_accuracy": round(float(test_metrics["balanced_accuracy"]), 4),
@@ -450,6 +483,7 @@ class ExperimentHarness:
             "malware_f1": round(float(test_metrics["per_class"]["MALWARE"]["f1"]), 4),
             "recon_f1": round(float(test_metrics["per_class"]["RECON"]["f1"]), 4),
             "attack_success_rate": round(float(test_metrics["attack_success_rate"]), 4) if test_metrics["attack_success_rate"] is not None else None,
+            "asr": round(float(test_metrics["attack_success_rate"]), 4) if test_metrics["attack_success_rate"] is not None else 0.0,
             # Security / Containment Metrics
             "attacker_detection_rate": round(float(detection_rate), 4),
             "time_to_detection": ttd,

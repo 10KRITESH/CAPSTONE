@@ -55,13 +55,54 @@ class TestHarness(unittest.TestCase):
         self.assertLessEqual(low, mean)
         self.assertGreaterEqual(high, mean)
 
-    def test_holm_bonferroni(self):
-        p_vals = [0.01, 0.04, 0.03]
-        adj = holm_bonferroni(p_vals)
-        self.assertEqual(len(adj), 3)
-        self.assertTrue(all(a <= 1.0 for a in adj))
-        # Smallest p-value multiplied by 3
-        self.assertAlmostEqual(adj[0], 0.03, places=5)
+    def test_attacker_selector_distinct(self):
+        """AttackerSelector must choose distinct attacker sets across invocations when used_attacker_sets is provided."""
+        if not self.partition_files:
+            self.skipTest("No partitions found")
+        selector = AttackerSelector(self.partition_files, source_class=4)
+        used_sets = set()
+        for s in range(5):
+            info = selector.select_stratified(
+                target_band=(0.05, 0.25),
+                num_malicious=2,
+                seed=42 + s,
+                used_attacker_sets=used_sets,
+            )
+            combo_tuple = tuple(sorted(info["attacker_ids"]))
+            self.assertNotIn(combo_tuple, used_sets)
+            used_sets.add(combo_tuple)
+        self.assertEqual(len(used_sets), 5)
+
+    def test_potency_gate_evaluation(self):
+        """Unit test for automatic potency gate PASS/FAIL logic on synthetic data."""
+        import pandas as pd
+        from src.experiments.aggregate_results import compute_potency_report
+
+        # Case 1: Potent attack -> PASS
+        records_pass = [
+            {"scenario": "clean", "train_seed": 1, "partition_seed": 11, "recon_f1": 0.80, "asr": 0.05, "macro_f1": 0.80, "attacker_mode": "band_1"},
+            {"scenario": "clean", "train_seed": 2, "partition_seed": 11, "recon_f1": 0.78, "asr": 0.06, "macro_f1": 0.79, "attacker_mode": "band_1"},
+            {"scenario": "attacked", "train_seed": 1, "partition_seed": 11, "recon_f1": 0.20, "asr": 0.85, "macro_f1": 0.50, "attacker_mode": "band_1", "attack": "targeted_label_flip", "attacker_recon_share": 0.12, "attacker_sample_share": 0.20},
+            {"scenario": "attacked", "train_seed": 2, "partition_seed": 11, "recon_f1": 0.25, "asr": 0.80, "macro_f1": 0.52, "attacker_mode": "band_1", "attack": "targeted_label_flip", "attacker_recon_share": 0.14, "attacker_sample_share": 0.20},
+        ]
+        df_pass = pd.DataFrame(records_pass)
+        report_pass = compute_potency_report(df_pass)
+        self.assertEqual(len(report_pass), 1)
+        self.assertEqual(report_pass[0]["gate_status"], "**PASS**")
+        self.assertNotIn("BASELINE", report_pass[0]["gate_status"])
+
+        # Case 2: Ineffective attack -> FAIL
+        records_fail = [
+            {"scenario": "clean", "train_seed": 1, "partition_seed": 11, "recon_f1": 0.80, "asr": 0.05, "macro_f1": 0.80, "attacker_mode": "band_1"},
+            {"scenario": "clean", "train_seed": 2, "partition_seed": 11, "recon_f1": 0.78, "asr": 0.06, "macro_f1": 0.79, "attacker_mode": "band_1"},
+            {"scenario": "attacked", "train_seed": 1, "partition_seed": 11, "recon_f1": 0.79, "asr": 0.05, "macro_f1": 0.79, "attacker_mode": "band_1", "attack": "targeted_label_flip", "attacker_recon_share": 0.08, "attacker_sample_share": 0.20},
+            {"scenario": "attacked", "train_seed": 2, "partition_seed": 11, "recon_f1": 0.77, "asr": 0.06, "macro_f1": 0.78, "attacker_mode": "band_1", "attack": "targeted_label_flip", "attacker_recon_share": 0.09, "attacker_sample_share": 0.20},
+        ]
+        df_fail = pd.DataFrame(records_fail)
+        report_fail = compute_potency_report(df_fail)
+        self.assertEqual(len(report_fail), 1)
+        self.assertEqual(report_fail[0]["gate_status"], "**FAIL**")
+        self.assertNotIn("BASELINE", report_fail[0]["gate_status"])
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ class FLCoordinator:
         clients: List of initialized FLClient instances.
         server_val_ds: CICIoTDataset for server validation set.
         test_ds: CICIoTDataset for overall evaluation.
-        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware'.
+        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware' | 'detector_log_only'.
         device: Compute device (cpu / cuda).
     """
 
@@ -245,7 +245,7 @@ class FLCoordinator:
         val_time_ms = 0.0
         state_factors = {}
 
-        if self.aggregation_method == "trust_class_aware":
+        if self.aggregation_method in ("trust_class_aware", "detector_log_only"):
             # Multi-Signal Validation
             val_results = self.validator.validate_updates(
                 self.global_model, updates, client_ids, round_num
@@ -293,15 +293,19 @@ class FLCoordinator:
                         torch.cuda.synchronize()
                     ledger_time_ms = (time.time() - t_led_start) * 1000.0
 
-            # Perform Class-Aware Trust Aggregation
-            global_dict, agg_time_ms = aggregate_trust_class_aware(
-                self.global_model, updates, sample_counts, client_ids,
-                self.rep_manager.reputation_table, state_factors, self.class_names,
-                disable_head_body_split=self.disable_head_body_split,
-                disable_state_factor=self.disable_state_factor,
-                trust_config=self.config,
-            )
-            self.global_model.load_state_dict(global_dict)
+            if self.aggregation_method == "detector_log_only":
+                # Plain sample-weighted FedAvg aggregation
+                agg_time_ms = self.aggregate_fedavg(updates, sample_counts)
+            else:
+                # Perform Class-Aware Trust Aggregation
+                global_dict, agg_time_ms = aggregate_trust_class_aware(
+                    self.global_model, updates, sample_counts, client_ids,
+                    self.rep_manager.reputation_table, state_factors, self.class_names,
+                    disable_head_body_split=self.disable_head_body_split,
+                    disable_state_factor=self.disable_state_factor,
+                    trust_config=self.config,
+                )
+                self.global_model.load_state_dict(global_dict)
 
         elif self.aggregation_method == "krum":
             global_dict, agg_time_ms = aggregate_krum(updates, self.global_model.state_dict())

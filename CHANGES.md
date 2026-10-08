@@ -362,9 +362,59 @@
 ### `run.sh`
 - **Purpose:** Master project command-line runner.
 - **How it fits into overall flow:** Provides unified CLI interface for running demonstrations, simulations, and report regeneration.
+## Phase E1: Measurement & Statistical Plumbing Fixes
+
+### `src/trust/state_machine.py`
+- **Purpose:** Manages the client security state lifecycle (`TRUSTED`, `PROBATION`, `QUARANTINED`) and computes aggregation state factors.
+- **How it fits into overall flow:** Evaluates temporal evidence and determines whether a client participates with full weight ($1.0$), decayed continuous weight, or is quarantined ($0.0$).
 - **Block-by-block explanation:**
-  - Added `./run.sh --results [run_id]` CLI option to regenerate statistical aggregation reports on demand.
+  - *Fix for D4 Soft Containment Keyword Precedence:* In `__init__`, `self.soft_containment` previously defaulted to `False` from the YAML dictionary even when the caller explicitly passed `soft_containment=True`. Updated initialization logic so explicit keyword arguments take precedence: `self.soft_containment = bool(soft_containment) if soft_containment is not None else bool(sm_cfg.get("soft_containment", False))`.
 
+### `src/federation/coordinator.py`
+- **Purpose:** Central coordinator orchestrating client training rounds, multi-signal validation, and weight aggregation.
+- **How it fits into overall flow:** Runs local client updates through the detector pipeline and passes updates to aggregation.
+- **Block-by-block explanation:**
+  - *Added `detector_log_only` aggregation mode:* When `aggregation_method == "detector_log_only"`, the coordinator executes the full validation suite, tracks reputation, logs evidence, and records state machine transitions, but computes the new global model using plain sample-weighted `aggregate_fedavg(updates, sample_counts)`. This provides a true detector-logging control baseline whose weights match `fedavg` exactly.
 
+### `src/experiments/harness.py`
+- **Purpose:** Orchestrates multi-seed FL simulations, attacker selection, and telemetry logging.
+- **How it fits into overall flow:** Manages experiment execution, client assignment, and incremental JSONL recording.
+- **Block-by-block explanation:**
+  - *Distinct Attacker Set Enforcement in `AttackerSelector`:* Updated `select_stratified` and `select_random` to accept `used_attacker_sets`. The selector skips combinations already evaluated in previous configs and asserts in code that every config within a partition uses a distinct attacker combination.
+  - *First-Class `partition_seed` Support:* Added `partition_seed` to `ExperimentHarness.__init__` and logged it in every record in `runs.jsonl`. Loads shards directly from `data/partitions/{split}/seed_{partition_seed}`.
+  - *Replaced `proposed_trust_off` with `detector_log_only`:* Configured runner to dispatch `detector_log_only` directly to the coordinator.
 
+### `src/experiments/aggregate_results.py`
+- **Purpose:** Computes confidence intervals, hypothesis testing, and generates Markdown research reports.
+- **How it fits into overall flow:** Processes raw simulation records into structured tables with statistical bounds.
+- **Block-by-block explanation:**
+  - *Cluster Bootstrap by `partition_seed`:* Enhanced `bootstrap_ci` to support cluster bootstrap resampling when multiple partition seeds are present, correctly accounting for partition-level variance.
+  - *Paired Potency Gate Calculation (`compute_potency_report`):* Calculates realized attacker RECON share and sample share per run. Evaluates paired differences ($\text{attacked} - \text{clean}$) for ASR and RECON F1 drop with bootstrap 95% CIs. Automatically outputs `**PASS**` if paired ASR lower CI $> 0$ and RECON F1 drop lower CI $> 0$, else outputs `**FAIL**` (never `"BASELINE"`).
+  - *Explicit Unit and $n$ Reporting:* Section 5 hypothesis test tables now explicitly print the replication unit and sample size (e.g. `seed (n=10)`).
 
+### `src/experiments/step_d_evaluate.py`
+- **Purpose:** 30-round benchmark runner across evaluation seeds.
+- **How it fits into overall flow:** Runs multi-seed comparison of baselines and proposed detector variants.
+- **Block-by-block explanation:**
+  - Replaced all references to `proposed_trust_off` with `detector_log_only`.
+
+### `tests/test_variants.py`
+- **Purpose:** Unit test suite for detector variants and defense components.
+- **How it fits into overall flow:** Automated regression testing during CI and local development.
+- **Block-by-block explanation:**
+  - Added `test_detector_log_only_equals_fedavg`: Verifies that `detector_log_only` produces global model weights identical to `fedavg` within $< 10^{-6}$ tolerance under identical initial weights and client updates.
+  - Added `test_d4_soft_containment_changes_aggregation_weights`: Verifies that continuous state factor decay in D4 produces numerically distinct aggregation weights from hard 3-tier containment.
+
+### `tests/test_harness.py`
+- **Purpose:** Unit test suite for experimental harness and statistical aggregation.
+- **How it fits into overall flow:** Verifies statistical math and attacker selection logic.
+- **Block-by-block explanation:**
+  - Added `test_potency_gate_evaluation`: Verifies automatic PASS/FAIL gate logic on synthetic paired data.
+  - Added `test_attacker_selector_distinct`: Verifies that `AttackerSelector` selects non-overlapping attacker sets across iterations.
+
+### `src/experiments/run_phase_e1_smoke.py`
+- **Purpose:** Acceptance smoke test runner for Phase E1.
+- **How it fits into overall flow:** Runs a 2-config, 5-round benchmark across `fedavg`, `detector_log_only`, `proposed_d0`, and `proposed_d4` on partition seed 11 to verify all plumbing fixes end-to-end.
+- **Block-by-block explanation:**
+  - Executes 16 total runs across clean and attacked scenarios with seeds 1 and 2.
+  - Performs automated mathematical assertions confirming `detector_log_only == fedavg` (max difference $= 0.00$), `proposed_d4 != proposed_d0` (numerical difference $> 0$), and automatic potency table formatting.

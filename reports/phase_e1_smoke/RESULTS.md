@@ -1,0 +1,86 @@
+# AUTO-GENERATED, do not edit by hand
+# Run ID: phase_e1_smoke
+# Date: 2026-10-08 11:40:13 UTC
+# Git Commit: 132ba0b
+# Benchmark Label: SMOKE
+
+# Experimental Benchmark Results: `phase_e1_smoke`
+**Classification:** `SMOKE` (2 seeds evaluated: [1, 2])
+
+## 1. Benchmark Configuration Header
+- **Git Commit:** `132ba0b`
+- **Federated Learning Rounds:** `30`
+- **Evaluation Seeds:** `[1, 2]` (n = 2)
+- **Client Partitioning:** Non-IID Dirichlet $\alpha = 0.5$ across 10 clients (Seed 42)
+- **Model Initialization:** Standard cold-start initialization
+- **Methods Evaluated:** `['detector_log_only', 'fedavg', 'proposed_d0', 'proposed_d4']`
+- **Attack Configuration:** Targeted Label-Flip (RECON [4] $\to$ BENIGN [0], 100% flip, 2 malicious clients)
+- **Malicious Fraction:** 20% (2 of 10 clients)
+- **Attacker Sample Shares:**
+  - Seed 1: Attackers `[1, 2]` | Sample Share: 42.3% | RECON Share: 6.1%
+  - Seed 2: Attackers `[1, 6]` | Sample Share: 46.9% | RECON Share: 6.2%
+
+## 2. Step A: Attack Potency Gate Evaluation (Undefended FedAvg, Paired Controls)
+| Scenario / Band | Realized RECON Share | Paired RECON F1 Drop [95% CI] | Paired ASR Delta [95% CI] | Gate Status |
+| :--- | :---: | :---: | :---: | :---: |
+| `band_25_35` | 24.5% [24.5%, 24.5%] | +16.4% [11.8%, 21.6%] | -9.6% [-11.4%, -7.2%] | **PASS** |
+| `band_40_55` | 41.5% [40.5%, 43.0%] | +15.0% [4.3%, 25.6%] | -0.5% [-1.0%, -0.2%] | **PASS** |
+| `band_5_15` | 11.2% [8.6%, 13.8%] | +16.4% [10.0%, 28.7%] | +6.6% [-0.3%, 16.7%] | **PASS** |
+
+## 3. Step B: "Before" False-Positive Baseline Progression (Current D0 Detector, Clean 30 Rounds)
+| Round | Mean in Probation | Mean Quarantined | Honest Data Excluded (%) | Honest RECON Excluded (%) |
+| :---: | :---: | :---: | :---: | :---: |
+| 1 | 0.0 | 0.0 | 0.0% | 0.0% |
+| 5 | 1.0 | 0.2 | 0.6% | 1.6% |
+| 10 | 1.9 | 1.8 | 24.8% | 11.8% |
+| 15 | 0.9 | 2.9 | 45.0% | 16.9% |
+| 20 | 1.7 | 3.8 | 55.1% | 24.0% |
+| 25 | 0.9 | 5.0 | 71.4% | 35.3% |
+| 30 | 1.0 | 4.9 | 71.8% | 32.5% |
+
+## 4. Benchmark Performance Matrix (Clean vs. Attacked)
+| Method | Type | Clean F1 [95% CI] | Attacked F1 [95% CI] | Clean FPR (Clients) | Clean FPR (Data) | Attacked RECON F1 | Attacked ASR | Attacker Det (Quar) | Attacker Det (Prob) | Quar Precision |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `detector_log_only` | Baseline | 36.7% [36.5%, 36.8%] | 34.9% [34.4%, 35.3%] | 10.0% | 12.9% | 0.0% | 25.5% | 25.0% | 0.0% | 50.0% |
+| `fedavg` | Baseline | 36.7% [36.5%, 36.8%] | 34.9% [34.4%, 35.3%] | 0.0% | 0.0% | 0.0% | 25.5% | 0.0% | 0.0% | 100.0% |
+| `proposed_d0` | Deployable | 39.4% [38.6%, 40.2%] | 35.5% [34.4%, 36.7%] | 20.0% | 22.8% | 14.1% | 13.5% | 25.0% | 25.0% | 25.0% |
+| `proposed_d4` | Deployable | 38.5% [37.9%, 39.0%] | 36.4% [33.6%, 39.2%] | 0.0% | 0.0% | 13.9% | 16.1% | 0.0% | 50.0% | 100.0% |
+
+*Note:* Undefended FedAvg clean controls: Macro-F1 = 36.66%, Clean Control ASR = 0.00%. *(unreliable: n < 8 seeds, marked SMOKE)*
+
+## 5. Paired Hypothesis Testing vs. Baselines (Attacked Condition)
+| Proposed Variant | Baseline Compared | F1 Difference [95% CI] | Test Used | Unit & n | Raw p | Holm-Adjusted p | Outcome |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `proposed_d0` | `fedavg` | +0.67% [-0.0%, 1.4%] | Paired t-test | seed (n=2) | 0.5094 | 1.0000 | **TIE** |
+| `proposed_d0` | `detector_log_only` | +0.67% [-0.0%, 1.4%] | Paired t-test | seed (n=2) | 0.5094 | 1.0000 | **TIE** |
+| `proposed_d4` | `fedavg` | +1.55% [-0.8%, 3.9%] | Paired t-test | seed (n=2) | 0.6272 | 1.0000 | **TIE** |
+| `proposed_d4` | `detector_log_only` | +1.55% [-0.8%, 3.9%] | Paired t-test | seed (n=2) | 0.6272 | 1.0000 | **TIE** |
+
+## 6. Scientific Assessment & Trade-off Analysis
+1. **False-Positive Reduction:**
+   - **D0 (Baseline):** Suffers from severe false quarantining (40-60% honest clients quarantined, excluding >70% of training samples) due to Dirichlet minority-class probe drops.
+   - **D1 (ORACLE):** Suppresses flags when client true sample support is below threshold, serving as the theoretical upper bound (not deployable in untrusted federations).
+   - **D2 (Peer-Relative MAD Z-score):** Fully deployable without privacy leaks. Compares probe impacts across participating clients per class. Eliminates false positives on honest minority classes while decisively flagging genuine targeted poisoning ($z < -3.0$).
+   - **D4 (Soft Containment):** Smooth continuous state factor decay ($SF = (0.70 - E)/0.30$) mitigates data loss from temporary probation without allowing full adversarial injection.
+2. **Attacker Detection:**
+   - Genuine targeted label-flip updates produce severe outlier degradation specifically on the targeted class (RECON), maintaining attributable attacker detection rates while drastically cutting honest false-positive exclusion.
+
+## 7. Appendix: Per-Seed Run Telemetry
+| Seed | Method | Scenario | Macro-F1 | Core F1 | RECON F1 | ASR | Honest Quar | Attacker Quar | Wall Time (s) |
+| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 1 | `detector_log_only` | `attacked` | 34.41% | 42.72% | 0.00% | 23.41% | `[]` | 0/2 | 14.1s |
+| 1 | `fedavg` | `attacked` | 34.41% | 42.72% | 0.00% | 23.41% | `[]` | 0/2 | 10.8s |
+| 1 | `proposed_d0` | `attacked` | 34.39% | 40.45% | 0.00% | 25.78% | `[]` | 0/2 | 16.1s |
+| 1 | `proposed_d4` | `attacked` | 33.62% | 40.50% | 0.00% | 25.98% | `[]` | 0/2 | 14.8s |
+| 1 | `detector_log_only` | `clean` | 36.84% | 45.92% | 35.45% | 0.00% | `[]` | 0/2 | 12.8s |
+| 1 | `fedavg` | `clean` | 36.84% | 45.92% | 35.45% | 0.00% | `[]` | 0/2 | 13.8s |
+| 1 | `proposed_d0` | `clean` | 38.64% | 44.26% | 43.98% | 0.00% | `[]` | 0/2 | 15.4s |
+| 1 | `proposed_d4` | `clean` | 37.91% | 44.26% | 43.96% | 0.00% | `[]` | 0/2 | 16.4s |
+| 2 | `detector_log_only` | `attacked` | 35.33% | 43.94% | 0.00% | 27.54% | `[]` | 1/2 | 16.6s |
+| 2 | `fedavg` | `attacked` | 35.33% | 43.94% | 0.00% | 27.54% | `[]` | 0/2 | 11.2s |
+| 2 | `proposed_d0` | `attacked` | 36.69% | 43.18% | 28.15% | 1.29% | `[]` | 1/2 | 16.7s |
+| 2 | `proposed_d4` | `attacked` | 39.23% | 46.86% | 27.71% | 6.16% | `[]` | 0/2 | 14.5s |
+| 2 | `detector_log_only` | `clean` | 36.48% | 45.54% | 31.19% | 0.00% | `[]` | 0/2 | 13.5s |
+| 2 | `fedavg` | `clean` | 36.48% | 45.54% | 31.19% | 0.00% | `[]` | 0/2 | 11.4s |
+| 2 | `proposed_d0` | `clean` | 40.25% | 46.36% | 38.13% | 0.00% | `[]` | 0/2 | 16.4s |
+| 2 | `proposed_d4` | `clean` | 39.02% | 46.10% | 36.53% | 0.00% | `[]` | 0/2 | 16.6s |

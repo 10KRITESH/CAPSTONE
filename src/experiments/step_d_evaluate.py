@@ -90,10 +90,8 @@ def run_single_eval_experiment(
         aggregation_method = "trimmed_mean"
     elif method_name == "krum":
         aggregation_method = "krum"
-    elif method_name == "proposed_trust_off":
-        aggregation_method = "trust_class_aware"
-        disable_split = True
-        disable_state = True
+    elif method_name == "detector_log_only":
+        aggregation_method = "detector_log_only"
     elif method_name == "proposed_d0":
         det_variant = "D0"
     elif method_name == "proposed_d1_100":
@@ -398,7 +396,7 @@ def run_step_d_evaluation(split: str = "dev", run_id: str = "step_d_evaluate", n
         "median",
         "trimmed_mean",
         "krum",
-        "proposed_trust_off",
+        "detector_log_only",
         "proposed_d0",
         "proposed_d1_100",  # ORACLE
         "proposed_d2_z3",   # Deployable Peer-Relative
