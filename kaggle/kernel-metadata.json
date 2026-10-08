@@ -1,6 +1,6 @@
 {
-  "id": "spector10/capstone-fl-benchmark",
-  "title": "Capstone FL Benchmark (Byzantine-Robust FL-IDS)",
+  "id": "spector10/capstone-fl-benchmark-byzantine-robust-fl-ids",
+  "title": "capstone-fl-benchmark-byzantine-robust-fl-ids",
   "code_file": "kaggle_fl_benchmark.ipynb",
   "language": "python",
   "kernel_type": "notebook",
