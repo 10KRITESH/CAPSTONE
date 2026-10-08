@@ -542,3 +542,39 @@
   - *Calibrated Attack Potency Gate:* Summarizes the 30-round evaluation of `targeted_label_flip` ($\gamma=2.0$, Band `[0.25, 0.40]`) across partitions 101..105, recording paired RECON F1 drop (+25.7% [+12.1%, +39.2%]), paired ASR delta (+14.0% [+6.0%, +21.3%]), and the resulting `PASS` status.
   - *Damage Decomposition:* Records the 15-round performance metrics for Honest Control, Attackers Removed, Random Label Noise, and Targeted Steering.
   - *Untargeted Gates:* Documents the `PASS` outcomes for `adaptive_norm_clip` and `adaptive_cosine_mimic`.
+
+## Phase E3: Diagnostic Suite (Detector Left Untouched)
+
+### `src/experiments/run_phase_e3_diagnosis.py`
+- **Purpose:** Diagnostic execution harness for evaluating update signals without feedback, identifying skew confounds, running FedAvg aggregation controls, and measuring model convergence.
+- **How it fits into overall flow:** Provides a scientific laboratory environment where `detector_log_only` is used so global model trajectories evolve identically to standard FedAvg while collecting all internal detector telemetry.
+- **Block-by-block explanation:**
+  - *`compute_client_skew_features`:* Scans each client's partition file and computes empirical class probabilities, total sample counts, majority class share, and Kullback-Leibler (KL) divergence from the global dataset distribution: $\sum_c P_i(c) \log \frac{P_i(c)}{P_{\text{global}}(c)}$.
+  - *`run_single_simulation`:* Executes a complete 30-round simulation for a specific condition (`clean_detector_log`, `attacked_detector_log`, `clean_d0`, `control_random_exclusion`, `control_drop_largest`, `control_class_balanced`).
+    - In `clean_d0`, logs the empirical quarantine schedule $K_t$ (how many clients are excluded per round).
+    - In `control_random_exclusion`, randomly drops exactly $K_t$ clients each round to isolate whether exclusion alone explains D0's performance.
+    - In `control_drop_largest`, excludes the top 2 largest clients to test the impact of volume vs. label skew.
+    - In `control_class_balanced`, weights clients uniformly ($1/K$) during aggregation.
+    - Evaluates the global model on `test.parquet` every round to record the exact convergence trajectory.
+  - *`analyze_per_signal_auc`:* Evaluates ROC AUC for update cosine similarity, norm Z-score, global Macro-F1 delta, per-class probe impacts, and pairwise collusion similarity against ground-truth attacker labels. Also computes support-matched AUC restricting honest clients to those with $\ge 100$ samples in that class.
+  - *`analyze_skew_confound`:* Performs OLS regressions of signals on skew features alone ($R^2_{\text{skew}}$) versus skew features plus an attacker indicator ($R^2_{\text{full}}$), and computes Spearman rank correlations ($\rho$) to determine whether signals measure malice or data imbalance.
+  - *`analyze_honest_flagging`:* Summarizes which honest clients get flagged, how many rounds, bad rounds count, peak evidence score, and rounds spent in probation and quarantine.
+
+### `kaggle/kaggle_fl_benchmark.ipynb`
+- **Purpose:** Kaggle notebook harness executing the Phase E3 benchmark on an NVIDIA Tesla T4 GPU.
+- **How it fits into overall flow:** Dispatches the 36-simulation diagnostic suite to the cloud GPU with 4 parallel worker processes and packages output artifacts into `phase_e3_results.zip`.
+- **Block-by-block explanation:**
+  - Updated Section 4 execution cell to launch `run_phase_e3_diagnosis.py --workers 4 --rounds 30`.
+  - Updated Section 5 packaging cell to archive `results/runs/phase_e3_diagnosis/` into `phase_e3_results.zip`.
+
+### `FINDINGS_ADDENDUM.md`
+- **Purpose:** Living document containing empirical findings and tables.
+- **How it fits into overall flow:** Holds the primary evidence and statistical analyses from Phase E3.
+- **Block-by-block explanation:**
+  - *Part 5 (Phase E3):* Documents the 13-signal AUC table (E3.1), OLS regressions and Spearman correlation matrix (E3.2), table of 30 honest clients flagged across partitions 11–13 (E3.3), 5-way FedAvg aggregation controls table (E3.4), and 6-configuration clean FedAvg convergence trajectory table (E3.5).
+
+### `RESULTS.md`
+- **Purpose:** Benchmark results summary report.
+- **How it fits into overall flow:** Exposes executive-level diagnostic takeaways for Phase E3.
+- **Block-by-block explanation:**
+  - Added Phase E3 Diagnostic Suite subsection under Section 2 summarizing per-signal AUCs, regression variance breakdown, aggregation control comparisons, and convergence speed.

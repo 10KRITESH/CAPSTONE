@@ -60,6 +60,34 @@
 - **`adaptive_norm_clip`:** Mean Macro-F1 Drop = **+4.20% [+1.86%, +6.18%]** | Gate: **`PASS`**
 - **`adaptive_cosine_mimic`:** Mean Macro-F1 Drop = **+14.58% [+3.13%, +33.67%]** | Gate: **`PASS`**
 
+### Phase E3 Diagnostic Suite (Calibration Partitions 11..13, 30 Rounds):
+*Source Run:* `results/runs/phase_e3_diagnosis/runs.jsonl` (Kaggle Cloud GPU, NVIDIA Tesla T4)
+
+#### 1. Per-Signal AUC for Attacker vs Honest (Overall and Support-Matched):
+- **`recon_impact`:** Overall AUC = **85.56%** | Support-Matched AUC ($N \ge 100$) = **91.61%** (Primary discriminator).
+- **`cosine_sim`:** Overall AUC = **65.90%** (Moderate discriminator; attenuated by honest label skew).
+- **`norm_z`:** Overall AUC = **51.15%** (Near random chance; uninformative).
+- **`collusion_sim`:** Overall AUC = **56.26%** (Near random chance under Dirichlet distribution).
+- **Non-target probe impacts:** AUCs range between **39.0%** and **52.6%**.
+
+#### 2. Skew Confound Regressions ($R^2$ Variance Explained):
+- **`norm_z`:** $R^2_{\text{skew}} = \mathbf{61.70\%}$ (Spearman $\rho = \mathbf{+0.818}$ with client sample count $n_i$). Pure proxy for dataset size!
+- **`cosine_sim`:** $R^2_{\text{skew}} = \mathbf{22.38\%}$ (Spearman $\rho = \mathbf{-0.316}$ with majority share).
+- **`recon_impact`:** $R^2_{\text{skew}} = 3.04\% \to R^2_{\text{full}} = 24.35\%$ ($\Delta R^2_{\text{attacker}} = \mathbf{+21.31\%}$, $\beta = -0.0800$). True attacker signal!
+
+#### 3. FedAvg Aggregation Controls (Parity Investigation):
+| Aggregation Method | Macro-F1 [95% CI] | Balanced Acc [95% CI] | Accuracy [95% CI] | RECON-F1 [95% CI] | Diff from FedAvg |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Clean FedAvg (Baseline)** | **49.42%** [47.8%, 51.0%] | **54.09%** [53.1%, 55.2%] | **68.82%** [65.0%, 71.3%] | 42.69% [39.6%, 44.7%] | --- |
+| **Clean D0 (Hard Quarantine)** | 45.94% [43.9%, 47.9%] | 53.24% [52.6%, 54.1%] | 59.63% [57.0%, 64.1%] | 43.80% [41.2%, 46.2%] | -3.48% |
+| **Control (a): Random Exclusion (at D0 rate)** | 44.36% [42.4%, 46.2%] | 52.54% [51.5%, 53.6%] | 64.84% [60.8%, 68.8%] | 36.07% [20.6%, 46.5%] | -5.06% |
+| **Control (b): Drop Top 2 Largest Clients** | **46.43%** [44.7%, 48.4%] | **53.83%** [53.2%, 54.5%] | 60.13% [57.9%, 64.1%] | 42.73% [38.9%, 46.6%] | -2.99% |
+| **Control (c): Class-Balanced Weights ($1/K$)** | **48.03%** [46.8%, 49.3%] | **53.92%** [53.4%, 54.5%] | 65.30% [61.3%, 69.2%] | **44.55%** [42.7%, 46.2%] | -1.39% |
+
+#### 4. Convergence Trajectory:
+- Clean FedAvg reaches within 1 percentage point of final performance at **Round 21.2 on average** (range: 15–30 rounds).
+- Premature honest quarantines in D0 (Rounds 4–12) truncate late minority-class learning.
+
 ## 3. Step B: "Before" False-Positive Baseline Progression (Current D0 Detector, Clean 30 Rounds)
 | Round | Mean in Probation | Mean Quarantined | Honest Data Excluded (%) | Honest RECON Excluded (%) |
 | :---: | :---: | :---: | :---: | :---: |
