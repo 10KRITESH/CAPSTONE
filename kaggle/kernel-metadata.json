@@ -1,18 +1,24 @@
 {
   "id": "spector10/capstone-fl-benchmark-byzantine-robust-fl-ids",
+  "id_no": 137675377,
   "title": "capstone-fl-benchmark-byzantine-robust-fl-ids",
-  "code_file": "kaggle_fl_benchmark.ipynb",
+  "code_file": "capstone-fl-benchmark-byzantine-robust-fl-ids.ipynb",
   "language": "python",
   "kernel_type": "notebook",
   "is_private": true,
   "enable_gpu": true,
   "enable_tpu": false,
-  "enable_internet": true,
-  "machine_shape": "NvidiaTeslaT4",
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
   "dataset_sources": [
     "spector10/capstone-code",
     "spector10/ciciot2023-fl-dev-partitions"
   ],
+  "kernel_sources": [],
   "competition_sources": [],
-  "kernel_sources": []
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:2757e0c7d1e0a9cb43da657b97e223c321a98f5014bdf64f44f2f6b083ad2b2f",
+  "machine_shape": "NvidiaTeslaT4"
 }
