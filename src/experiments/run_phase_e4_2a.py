@@ -201,6 +201,7 @@ def run_simulation(
       - custom_params: Optional dict of overrides (e.g. thresholds)
     """
     t0 = time.time()
+    torch.set_num_threads(1)
     if device_str is not None:
         device = torch.device(device_str)
     else:
@@ -342,7 +343,15 @@ def run_simulation(
         client_weights.append(c_weights)
 
     loc_model = IDS_MLP(in_features=len(feature_cols), num_classes=8).to(device)
-    opt = torch.optim.Adam(loc_model.parameters(), lr=1e-3, weight_decay=1e-4)
+    try:
+        opt = torch.optim.Adam(
+            loc_model.parameters(),
+            lr=1e-3,
+            weight_decay=1e-4,
+            fused=(device.type == "cuda"),
+        )
+    except TypeError:
+        opt = torch.optim.Adam(loc_model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     telemetry_records = []
     quarantine_schedule = []
@@ -369,14 +378,17 @@ def run_simulation(
 
                 gen = torch.Generator(device=device if device.type == "cuda" else None).manual_seed(train_seed + r * 1000 + cid)
                 perm = torch.randperm(N, generator=gen, device=device)
+                Xc_shuff = Xc[perm]
+                yc_shuff = yc[perm]
 
                 loc_model.train()
                 num_batches = (N // batch_size) if N > batch_size else 1
                 step_size = batch_size if N > batch_size else N
                 for b in range(num_batches):
-                    idx = perm[b * step_size : (b + 1) * step_size]
+                    sb = b * step_size
+                    eb = sb + step_size
                     opt.zero_grad(set_to_none=True)
-                    crit(loc_model(Xc[idx]), yc[idx]).backward()
+                    crit(loc_model(Xc_shuff[sb:eb]), yc_shuff[sb:eb]).backward()
                     opt.step()
 
                 u = {}
@@ -901,6 +913,7 @@ def build_step8_configs() -> list[dict[str, Any]]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _sim_worker(args: tuple) -> dict[str, Any]:
+    torch.set_num_threads(1)
     if len(args) == 8:
         cfg, p_dir, test_p, val_p, feats, classes, bs, dev_str = args
         return run_simulation(cfg, p_dir, test_p, val_p, feats, classes, bs, device_str=dev_str)
@@ -943,9 +956,9 @@ def main():
     else:
         log.info("No CUDA GPU detected; executing on CPU.")
 
-    if args.workers == 4 and num_gpus >= 2:
+    if num_gpus >= 2 and args.workers <= 8:
         effective_workers = min(12, 6 * num_gpus)
-        log.info(f"Multi-GPU detected ({num_gpus} GPUs). Scaling worker pool from 4 to {effective_workers} processes ({effective_workers // num_gpus} per GPU).")
+        log.info(f"Multi-GPU detected ({num_gpus} GPUs). Scaling worker pool from {args.workers} to {effective_workers} processes ({effective_workers // num_gpus} per GPU).")
     else:
         effective_workers = args.workers
 
