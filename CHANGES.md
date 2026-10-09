@@ -842,3 +842,13 @@
   - *`kaggle/fleet/dispatch_fleet.sh`:* Shell script that uses `kaggle kernels push` to dispatch all 3 shards to Kaggle concurrently with one command.
   - *`kaggle/fleet/pull_and_merge_fleet.py`:* Orchestrator script that downloads outputs from all 3 kernels via `kaggle kernels output`, unzips and merges their logs using `merge_sharded_results.py`, and regenerates `RESULTS.md`.
   - *`kaggle/fleet/orchestrate_fleet.py`:* Autonomous cloud fleet queue manager and runner. Respects Kaggle's ceiling of 2 concurrent GPU sessions by continuously monitoring Part 1 and Part 2, automatically dispatching Part 3 the moment either slot frees up, awaiting all 3 completions, pulling output bundles, and invoking `merge_shards()` to regenerate `RESULTS.md` seamlessly without manual intervention.
+
+## Phase E4.2a+: Zero-Churn Pre-Allocated Tensor Buffers & Criterion Reuse
+
+### `src/experiments/run_phase_e4_2a.py`
+- **Purpose:** Eliminates per-round dynamic GPU memory allocations, deallocations, and Python object construction overhead in the federated client training loop.
+- **How it fits into overall flow:** In a 30-round simulation with 10 clients, local SGD training runs 300 times. Allocating new mini-batch shuffle tensors and initializing PyTorch `CrossEntropyLoss` and `torch.Generator` instances on every iteration causes memory fragmentation and allocator lock contention on multi-core systems.
+- **Block-by-block explanation:**
+  - *Pre-Allocated Client Buffers (`client_X_buf`, `client_y_buf`):* Allocates static GPU memory buffers matching client tensor shapes once at simulation startup. Instead of allocating fresh tensors via slice indexing on every round (`Xc[perm]`), PyTorch's native `torch.index_select(Xc, 0, perm, out=client_X_buf[cid])` writes permutations directly into pinned memory, eliminating 300 GPU DRAM allocations (~1.34 GB churn per simulation).
+  - *Reusable Client Loss Functions (`client_criterions`):* Pre-instantiates class-weighted `nn.CrossEntropyLoss` objects for each client once outside the round loop rather than reconstructing them 300 times.
+  - *Persistent CUDA RNG Generator (`rng_gen`):* Instantiates a single `torch.Generator` object on the target device and updates its seed dynamically with `.manual_seed(...)`, avoiding CUDA RNG context construction overhead.

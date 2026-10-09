@@ -358,6 +358,12 @@ def run_simulation(
     round_convergence = []
     first_caught_round = {aid: None for aid in malicious_set}
 
+    # Pre-allocated shuffle buffers, loss criterions, and RNG generator to eliminate per-round memory churn
+    client_criterions = [nn.CrossEntropyLoss(weight=client_weights[c]) for c in range(10)]
+    client_X_buf = [torch.empty_like(ct) for ct in client_X_gpu]
+    client_y_buf = [torch.empty_like(ct) for ct in client_y_gpu]
+    rng_gen = torch.Generator(device=device if device.type == "cuda" else None)
+
     for r in range(1, num_rounds + 1):
         g_state = global_model.state_dict()
         client_updates = []
@@ -367,19 +373,20 @@ def run_simulation(
             for cid in range(10):
                 Xc = client_X_gpu[cid]
                 yc = client_y_gpu[cid]
-                class_weights = client_weights[cid]
+                crit = client_criterions[cid]
                 N = Xc.shape[0]
 
                 with torch.no_grad():
                     for p_loc, p_glob in zip(loc_model.parameters(), global_model.parameters()):
                         p_loc.copy_(p_glob)
                 opt.state.clear()
-                crit = nn.CrossEntropyLoss(weight=class_weights)
 
-                gen = torch.Generator(device=device if device.type == "cuda" else None).manual_seed(train_seed + r * 1000 + cid)
-                perm = torch.randperm(N, generator=gen, device=device)
-                Xc_shuff = Xc[perm]
-                yc_shuff = yc[perm]
+                rng_gen.manual_seed(train_seed + r * 1000 + cid)
+                perm = torch.randperm(N, generator=rng_gen, device=device)
+                torch.index_select(Xc, 0, perm, out=client_X_buf[cid])
+                torch.index_select(yc, 0, perm, out=client_y_buf[cid])
+                Xc_shuff = client_X_buf[cid]
+                yc_shuff = client_y_buf[cid]
 
                 loc_model.train()
                 num_batches = (N // batch_size) if N > batch_size else 1
