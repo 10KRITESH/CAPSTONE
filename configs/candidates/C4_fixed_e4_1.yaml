@@ -1,0 +1,14 @@
+candidate_name: 'C4: Fixed-E4.1 (Power Norm Scaling)'
+candidate_tag: C4_fixed_e4_1
+defense_type: fixed_e4_1
+eval_partitions:
+- 11
+- 12
+- 13
+frozen_commit: 7403dc5f31d86066dafb2574f5b310b3d692a9f1
+head_salience: true
+norm_scale_power: 0.585
+probation_threshold: 0.4
+quarantine_threshold: 0.7
+rounds: 30
+warmup_rounds: 5

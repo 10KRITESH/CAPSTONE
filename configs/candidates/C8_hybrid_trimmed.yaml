@@ -1,0 +1,14 @@
+candidate_name: 'C8: HYBRID-TRIMMED (C5 Attribution + Trimmed)'
+candidate_tag: C8_hybrid_trimmed
+defense_type: hybrid_trimmed
+eval_partitions:
+- 11
+- 12
+- 13
+frozen_commit: 7403dc5f31d86066dafb2574f5b310b3d692a9f1
+head_salience: true
+norm_scale_power: 0.0
+probation_threshold: 0.4
+quarantine_threshold: 0.7
+rounds: 30
+warmup_rounds: 5

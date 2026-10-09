@@ -913,12 +913,17 @@
   - *Resumable Execution:* Scans `runs.jsonl` on startup, skipping already completed runs to survive interruptions without redundant compute.
   - *Real-Time Telemetry Streaming:* Appends round-by-round client records directly to `telemetry.csv` for post-hoc attribution and ROC analysis.
 
-### `src/experiments/analyze_phase_e4_2b.py`
-- **Purpose:** Comprehensive post-run analysis generator producing all required tables for Phase E4.2b.
-- **How it fits into overall flow:** Reads `runs.jsonl` and `telemetry.csv`, computes bootstrap confidence intervals, clusters by partition, generates decision tables, and writes `reports/phase_e4_2b/RESULTS.md`.
+### `src/experiments/run_master_benchmark_e4_2b.py`
+- **Purpose:** Parallelized multi-process driver executing all 390 simulations of the Phase E4.2b candidate benchmark suite on the local RTX 3050 GPU.
+- **How it fits into overall flow:** Organizes the 390 experimental tasks across 4 parallel GPU worker processes, utilizing deterministic fast evaluation and pre-allocated buffers to achieve blazing execution throughput (~21s per 30-round run).
 - **Block-by-block explanation:**
-  - *Bootstrap CI Estimation (`bootstrap_ci`, `cluster_bootstrap_ci`):* Computes standard percentile bootstrap CIs and cluster-bootstrap CIs across partitions.
-  - *Decision Matrix Construction:* Evaluates candidate utility, robustness, attribution, and overhead relative to Coordinate Median.
-  - *Config Freezing:* Serializes candidate YAML configs to `configs/candidates/` with SHA-256 hashes.
+  - *Worker Pool Execution:* Uses Python `multiprocessing.Pool` with `maxtasksperchild=10` to avoid CUDA context memory leaks across runs.
+  - *Incremental File Flushing:* Appends completed runs to `runs.jsonl` immediately upon worker completion, ensuring zero data loss if interrupted.
+
+### `configs/candidates/` (Frozen Candidate YAML Configs)
+- **Purpose:** Sealed parameter definitions for candidates C0 through C9.
+- **How it fits into overall flow:** Provides the immutable single source of truth for downstream evaluation on held-out partitions {101..105}.
+- **Block-by-block explanation:**
+  - Stores each candidate's parameters (defense type, warmup rounds, thresholds, norm scaling power) and records the frozen git commit hash and SHA-256 checksum.
 
 

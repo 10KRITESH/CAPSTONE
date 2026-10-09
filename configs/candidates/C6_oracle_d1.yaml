@@ -1,0 +1,14 @@
+candidate_name: 'C6: Oracle Exclusion (Round 1)'
+candidate_tag: C6_oracle_d1
+defense_type: oracle_d1
+eval_partitions:
+- 11
+- 12
+- 13
+frozen_commit: 7403dc5f31d86066dafb2574f5b310b3d692a9f1
+head_salience: false
+norm_scale_power: null
+probation_threshold: 0.4
+quarantine_threshold: 0.7
+rounds: 30
+warmup_rounds: 0
