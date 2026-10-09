@@ -730,6 +730,18 @@
   - *GPU Resident Client Training Tensors & Direct Batch Slicing:* Pre-loads client feature tensors `client_X_gpu` and label tensors `client_y_gpu` directly onto GPU VRAM at simulation start. Client SGD batches are sampled directly using device-resident random permutation indices (`torch.randperm(N, generator=gen, device=device)`), pre-instantiating `loc_model` once rather than rebuilding it 300 times. Parameter deltas are computed directly in CUDA memory before transferring the final parameter dictionary to CPU. This drops local training latency per round by $8.5\times$ (down to 18.8s for an entire 30-round 10-client simulation).
   - *GPU Resident Test Tensors in `fast_evaluate`:* Pre-transfers the test dataset tensors `(X_test, y_test)` to GPU VRAM once at simulation start, avoiding 30 redundant PCIe bus transfers of 130,000 samples per round.
 
+### `FINDINGS_ADDENDUM.md` (Part 7: Phase E4.1 Cloud Verification Benchmark)
+- **Purpose:** Primary repository of empirical findings and diagnostic records.
+- **How it fits into overall flow:** Holds the empirical verification matrix from the Kaggle Tesla T4 GPU 36-simulation 30-round run.
+- **Block-by-block explanation:**
+  - *Part 7:* Records the 6-mode comparison matrix with 95% bootstrap confidence intervals, documenting 0.0% honest quarantine rates in both clean and attacked simulations, RECON F1 protection (15.70% vs 1.26% FedAvg and 10.13% D0), and 402.4s compute wall time.
+
+### `RESULTS.md` (Section 9: Phase E4.1 Verification Matrix)
+- **Purpose:** Top-level executive benchmark summary.
+- **How it fits into overall flow:** Summarizes the final hardened defense performance against legacy baselines.
+- **Block-by-block explanation:**
+  - *Section 9:* Tabulates the final Phase E4.1 verification matrix, quantifying the elimination of false quarantines, superior attacked macro-F1 (44.10%), and $3.6\times$ cloud speedup.
+
 
 
 
