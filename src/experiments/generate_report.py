@@ -118,7 +118,18 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
     run_label = "EVIDENCE" if is_evidence else "SMOKE"
 
     # Modes or methods evaluated
-    modes = sorted(df_runs["mode"].unique().tolist()) if "mode" in df_runs.columns else sorted(df_runs["method"].unique().tolist())
+    if "mode" in df_runs.columns:
+        modes = sorted(df_runs["mode"].unique().tolist())
+        col_name = "mode"
+    elif "method" in df_runs.columns:
+        modes = sorted(df_runs["method"].unique().tolist())
+        col_name = "method"
+    elif "defense_type" in df_runs.columns:
+        modes = sorted(df_runs["defense_type"].unique().tolist())
+        col_name = "defense_type"
+    else:
+        modes = sorted(df_runs["run_name"].unique().tolist())
+        col_name = "run_name"
 
     lines: list[str] = []
     lines.append("# AUTO-GENERATED, do not edit by hand")
@@ -165,7 +176,6 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
             )
     else:
         for m in modes:
-            col_name = "mode" if "mode" in df_runs.columns else "method"
             sub = df_runs[df_runs[col_name] == m]
             if len(sub) == 0:
                 continue
