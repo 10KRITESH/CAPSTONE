@@ -148,29 +148,19 @@ class UpdateValidator:
         is_cuda = (self.device.type == "cuda")
 
         # 1. Flatten updates & compute geometric median reference update
-        if is_cuda:
-            torch.cuda.synchronize()
         t_cos_start = time.time()
         flat_updates = [flatten_update(u) for u in client_updates]
         ref_flat = compute_geometric_median_reference(flat_updates)
-        if is_cuda:
-            torch.cuda.synchronize()
         t_cos_ms = (time.time() - t_cos_start) * 1000.0
 
         # 2. Run Cross-Client Sub-Cluster Collusion Detection
-        if is_cuda:
-            torch.cuda.synchronize()
         t_col_start = time.time()
         collusion_penalties = self.collusion_detector.analyze_updates(
-            client_updates, client_ids, ref_flat, round_num
+            flat_updates, client_ids, ref_flat, round_num
         )
-        if is_cuda:
-            torch.cuda.synchronize()
         t_col_ms = (time.time() - t_col_start) * 1000.0
 
         # 3. Calculate L2 norms and sample-scaled norms (Flaw 2: breaks dataset-size confound)
-        if is_cuda:
-            torch.cuda.synchronize()
         t_mad_start = time.time()
         raw_norms = [float(u.norm().item()) for u in flat_updates]
         if sample_counts is not None and len(sample_counts) == len(client_updates) and sum(sample_counts) > 0:
@@ -181,13 +171,9 @@ class UpdateValidator:
             ]
         else:
             scaled_norms = raw_norms
-        if is_cuda:
-            torch.cuda.synchronize()
         t_mad_ms = (time.time() - t_mad_start) * 1000.0
 
         # 4. Evaluate baseline global model performance on server val set
-        if is_cuda:
-            torch.cuda.synchronize()
         t_probe_start = time.time()
         base_macro_f1, base_class_f1 = self._evaluate_fast(global_model)
 
@@ -213,14 +199,15 @@ class UpdateValidator:
                 head_energy = np.ones(len(self.class_names)) / max(1, len(self.class_names))
 
             probe_scale = 1.0 / max(1, len(client_updates))
-            candidate_model = IDS_MLP(**global_model.config).to(self.device)
-            cand_dict = {
-                k: v.to(self.device) + (update[k].to(self.device) * probe_scale)
-                for k, v in global_model.state_dict().items()
-            }
-            candidate_model.load_state_dict(cand_dict)
+            if not hasattr(self, "_cand_model") or self._cand_model is None:
+                self._cand_model = IDS_MLP(**global_model.config).to(self.device)
+                self._cand_model.eval()
+            with torch.no_grad():
+                for p_cand, (k, p_glob) in zip(self._cand_model.parameters(), global_model.named_parameters()):
+                    u_k = update[k].to(self.device) if update[k].device != self.device else update[k]
+                    p_cand.copy_(p_glob + u_k * probe_scale)
 
-            cand_macro_f1, cand_per_class_f1 = self._evaluate_fast(candidate_model)
+            cand_macro_f1, cand_per_class_f1 = self._evaluate_fast(self._cand_model)
             global_impact = cand_macro_f1 - base_macro_f1
 
             per_class_impact = {
@@ -342,8 +329,6 @@ class UpdateValidator:
             )
             results.append(res)
 
-        if is_cuda:
-            torch.cuda.synchronize()
         t_probe_ms = (time.time() - t_probe_start) * 1000.0
 
         self.last_timing_breakdown = {
