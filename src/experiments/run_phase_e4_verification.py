@@ -229,7 +229,8 @@ def run_single_simulation(
             detector_variant="D2",
             d2_z_thresh=3.0,
             mad_floor=0.015,
-            energy_share_gate=0.04,
+            energy_share_gate=0.40,
+            norm_scale_power=0.585,
         )
         state_machine = ClientStateMachine(
             probation_threshold=0.40,
@@ -238,7 +239,7 @@ def run_single_simulation(
             warmup_rounds=5, # 5-round warmup horizon
         )
         rep_manager = PerClassReputationManager(class_names=class_names)
-        evidence_tracker = TemporalEvidenceTracker()
+        evidence_tracker = TemporalEvidenceTracker(warmup_rounds=5)
     elif is_d0:
         # Legacy flawed D0
         validator = UpdateValidator(

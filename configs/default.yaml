@@ -100,9 +100,9 @@ trust:
     cosine_threshold: -0.50             # Cosine similarity threshold for LOW_COSINE flag
     adversarial_cosine_threshold: -0.60 # Critical inverted cosine threshold
     norm_z_extreme_threshold: 15.0      # Outlier MAD Z-score threshold
-    norm_z_anomaly_threshold: 4.0       # Conditional norm anomaly threshold
+    norm_z_anomaly_threshold: 1.8       # Scaled norm anomaly threshold when coupled with angular/impact skew
     global_degradation_threshold: -0.05 # Validation macro-F1 drop for GLOBAL_DEGRADATION
-    target_class_degradation_threshold: -0.025 # Per-class F1 drop threshold
+    target_class_degradation_threshold: -0.05 # Meaningful per-class F1 drop threshold
     target_class_min_base_f1: 0.15      # Minimum baseline F1 for per-class degradation check
 
   detector:
@@ -112,7 +112,8 @@ trust:
     d3_calibrated_z_thresh: null        # Calibrated z threshold from calibration seeds
     d3_calibrated_impact_thresh: null   # Calibrated impact threshold from calibration seeds
     mad_floor: 0.015                    # Robust scale floor preventing micro-noise from inflating peer Z
-    energy_share_gate: 0.04             # Minimum head energy share to confirm client trained on class
+    energy_share_gate: 0.40             # Minimum head energy share to confirm concentrated targeted class steering
+    norm_scale_power: 0.585             # Calibrated power scaling eliminating sample-count Spearman correlation
 
   state_machine:
     probation_threshold: 0.40           # Evidence E threshold for entering PROBATION

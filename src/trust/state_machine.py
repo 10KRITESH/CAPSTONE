@@ -129,6 +129,12 @@ class ClientStateMachine:
         reason = "NO_CHANGE"
         is_warmup = (round_num <= self.warmup_rounds)
 
+        # Warmup exit clean slate: when round_num crosses warmup horizon,
+        # reset consecutive_bad strikes if evidence is below hard quarantine threshold
+        if round_num == self.warmup_rounds + 1 and evidence_rec.consecutive_bad > 0 and E < self.quarantine_threshold:
+            evidence_rec.consecutive_bad = 0
+            bad = 0
+
         # 1. Check demotion / escalation triggers
         if self.soft_containment:
             # D4: Hard quarantine ONLY at E >= quarantine_threshold

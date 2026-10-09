@@ -87,35 +87,37 @@ class PerClassReputationManager:
         else:
             sim_q = max(0.0, 0.85 + 1.70 * val_result.cosine_sim)
 
-        # 2. Update norm quality: Penalize abnormally high Z-scores (|Z| > 2)
-        # Normal within-cohort variance on sample-scaled updates is |Z| <= 2.0.
+        # 2. Update norm quality: Penalize abnormally high Z-scores (|Z| > 1.8)
         abs_z = abs(val_result.norm_z_score)
-        if abs_z <= 2.0:
+        if abs_z <= 1.8:
             norm_q = 1.0
         else:
-            norm_q = max(0.0, min(1.0, 1.0 - (abs_z - 2.0) / 4.0))
+            norm_q = max(0.0, min(1.0, 1.0 - (abs_z - 1.8) / 2.0))
 
         updated_rep = {}
         for cls in self.class_names:
             # 3. Per-class performance quality: impact in [-1, 1] mapped to [0, 1]
             imp = val_result.per_class_f1_impact.get(cls, 0.0)
+            is_class_flagged = f"TARGET_CLASS_DEGRADATION_{cls}" in val_result.suspicious_flags
 
-            # Dampen negative impact penalty if class is low-support
-            if cls in self.low_support_classes and imp < 0:
+            # Dampen negative impact penalty if class is low-support and NOT explicitly flagged
+            if cls in self.low_support_classes and imp < 0 and not is_class_flagged:
                 imp *= self.low_support_dampening
 
-            if imp < 0:
+            if is_class_flagged:
+                # Confirmed targeted degradation immediately collapses class quality and overrides composite score
+                perf_q = 0.05
+                q_score = 0.10
+            elif imp < 0:
                 perf_q = max(0.0, min(1.0, 1.0 + 5.0 * imp))
+                q_score = max(0.0, min(1.0, (self.wp * perf_q) + (self.ws * sim_q) + (self.wn * norm_q)))
             else:
                 perf_q = 1.0
-
-            # Quality composite score Q(i, c)
-            q_score = (self.wp * perf_q) + (self.ws * sim_q) + (self.wn * norm_q)
-            q_score = max(0.0, min(1.0, q_score))
+                q_score = max(0.0, min(1.0, (self.wp * perf_q) + (self.ws * sim_q) + (self.wn * norm_q)))
 
             # EWMA update: R_t(i, c) = (1 - eta) * R_{t-1} + eta * Q_t
             r_prev = current_rep[cls]
-            effective_eta = self.accelerated_eta if imp < self.acceleration_impact_threshold else self.eta
+            effective_eta = self.accelerated_eta if (imp < self.acceleration_impact_threshold or is_class_flagged) else self.eta
             r_new = (1.0 - effective_eta) * r_prev + effective_eta * q_score
             updated_rep[cls] = round(max(0.0, min(1.0, r_new)), 4)
 

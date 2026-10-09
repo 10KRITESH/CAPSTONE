@@ -67,6 +67,8 @@ class UpdateValidator:
         oracle_client_support: dict[str | int, dict[str, int]] | None = None,
         mad_floor: float | None = None,
         energy_share_gate: float | None = None,
+        norm_scale_power: float | None = None,
+        target_class_degradation_thresh: float | None = None,
     ) -> None:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
@@ -80,9 +82,13 @@ class UpdateValidator:
 
         self.cosine_threshold = ev_cfg.get("cosine_threshold", -0.50)
         self.norm_z_extreme = ev_cfg.get("norm_z_extreme_threshold", 15.0)
-        self.norm_z_anomaly = ev_cfg.get("norm_z_anomaly_threshold", 4.0)
+        self.norm_z_anomaly = ev_cfg.get("norm_z_anomaly_threshold", 1.8)
         self.global_degradation_thresh = ev_cfg.get("global_degradation_threshold", -0.05)
-        self.target_class_degradation_thresh = ev_cfg.get("target_class_degradation_threshold", -0.025)
+        self.target_class_degradation_thresh = (
+            target_class_degradation_thresh
+            if target_class_degradation_thresh is not None
+            else ev_cfg.get("target_class_degradation_threshold", -0.05)
+        )
         self.target_class_min_base_f1 = ev_cfg.get("target_class_min_base_f1", 0.15)
         self.collusion_flag_thresh = col_cfg.get("collusion_penalty_flag_threshold", 0.40)
 
@@ -94,7 +100,8 @@ class UpdateValidator:
         self.d3_calibrated_impact_thresh = d3_calibrated_impact_thresh if d3_calibrated_impact_thresh is not None else det_cfg.get("d3_calibrated_impact_thresh", None)
         self.oracle_client_support = oracle_client_support
         self.mad_floor = mad_floor if mad_floor is not None else det_cfg.get("mad_floor", 0.015)
-        self.energy_share_gate = energy_share_gate if energy_share_gate is not None else det_cfg.get("energy_share_gate", 0.04)
+        self.energy_share_gate = energy_share_gate if energy_share_gate is not None else det_cfg.get("energy_share_gate", 0.40)
+        self.norm_scale_power = norm_scale_power if norm_scale_power is not None else det_cfg.get("norm_scale_power", 0.585)
 
         self.collusion_detector = SubClusterCollusionDetector(
             similarity_threshold=col_cfg.get("similarity_threshold", 0.88),
@@ -144,7 +151,7 @@ class UpdateValidator:
         if sample_counts is not None and len(sample_counts) == len(client_updates) and sum(sample_counts) > 0:
             mean_n = float(np.mean(sample_counts))
             scaled_norms = [
-                float(norm / np.sqrt(max(0.1, n_i / max(1.0, mean_n))))
+                float(norm / np.power(max(0.05, n_i / max(1.0, mean_n)), self.norm_scale_power))
                 for norm, n_i in zip(raw_norms, sample_counts)
             ]
         else:
@@ -245,7 +252,9 @@ class UpdateValidator:
             flags = []
             if cos_sim < cohort_cos_floor:
                 flags.append("LOW_COSINE_SIMILARITY")
-            if (abs(z_score) > self.norm_z_extreme) or (abs(z_score) > self.norm_z_anomaly and (cos_sim < 0.0 or global_impact < -0.03)):
+            if (abs(z_score) > self.norm_z_extreme) or (
+                z_score > self.norm_z_anomaly and (cos_sim < max(0.20, cohort_cos_floor) or global_impact < -0.02)
+            ):
                 flags.append("ABNORMAL_UPDATE_NORM")
             if global_impact < self.global_degradation_thresh:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
@@ -270,27 +279,27 @@ class UpdateValidator:
                         flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
                 elif self.detector_variant == "D2":
-                    # Peer-relative scoring with support energy gate (deployable)
+                    # Peer-relative scoring with concentrated support energy gate (deployable)
                     z = client_peer_z[cls]
                     c_idx = self.class_names.index(cls) if cls in self.class_names else 0
                     energy_share = ce["head_energy"][c_idx]
                     is_severe_drop = (imp < -0.08)
-                    has_energy = (energy_share >= self.energy_share_gate)
+                    has_concentrated_energy = (energy_share >= self.energy_share_gate)
                     if imp < self.target_class_degradation_thresh and z < -self.d2_z_thresh:
-                        if is_severe_drop or has_energy:
+                        if is_severe_drop or has_concentrated_energy:
                             flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
                 elif self.detector_variant == "D3":
-                    # Calibrated peer-relative scoring with support energy gate
+                    # Calibrated peer-relative scoring with concentrated support energy gate
                     z = client_peer_z[cls]
                     z_thresh = self.d3_calibrated_z_thresh if self.d3_calibrated_z_thresh is not None else self.d2_z_thresh
                     imp_thresh = self.d3_calibrated_impact_thresh if self.d3_calibrated_impact_thresh is not None else self.target_class_degradation_thresh
                     c_idx = self.class_names.index(cls) if cls in self.class_names else 0
                     energy_share = ce["head_energy"][c_idx]
                     is_severe_drop = (imp < -0.08)
-                    has_energy = (energy_share >= self.energy_share_gate)
+                    has_concentrated_energy = (energy_share >= self.energy_share_gate)
                     if imp < imp_thresh and z < -z_thresh:
-                        if is_severe_drop or has_energy:
+                        if is_severe_drop or has_concentrated_energy:
                             flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

@@ -44,14 +44,17 @@ class TemporalEvidenceTracker:
         rho: float = 0.80,
         reputation_drop_threshold: float = 0.40,
         adversarial_cosine_threshold: float = -0.60,
+        warmup_rounds: int = 5,
         config: Optional[dict] = None,
     ) -> None:
         cfg = config or {}
         ev_cfg = cfg.get("trust", {}).get("evidence", {})
+        sm_cfg = cfg.get("trust", {}).get("state_machine", {})
 
         self.rho = ev_cfg.get("rho", rho)
         self.reputation_drop_threshold = ev_cfg.get("reputation_drop_threshold", reputation_drop_threshold)
         self.adversarial_cosine_threshold = ev_cfg.get("adversarial_cosine_threshold", adversarial_cosine_threshold)
+        self.warmup_rounds = sm_cfg.get("warmup_rounds", warmup_rounds)
         self.records: dict[str | int, EvidenceRecord] = {}
 
     def get_record(self, client_id: str | int) -> EvidenceRecord:
@@ -101,8 +104,17 @@ class TemporalEvidenceTracker:
             (self.rho * rec.evidence_score) + ((1.0 - self.rho) * is_bad), 4
         )
 
+        # Warmup horizon protection:
+        # During rounds 1..warmup_rounds, models are actively settling representations.
+        # Do not accumulate consecutive bad round strikes during warmup.
+        is_warmup = (val_result.round_num <= self.warmup_rounds)
+
+        if val_result.round_num == self.warmup_rounds + 1:
+            rec.consecutive_bad = 0
+
         if is_bad:
-            rec.consecutive_bad += 1
+            if not is_warmup:
+                rec.consecutive_bad += 1
             rec.consecutive_clean = 0
             rec.total_bad += 1
             rec.last_suspicious_round = val_result.round_num

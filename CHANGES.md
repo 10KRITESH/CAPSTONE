@@ -667,8 +667,61 @@
 ### `RESULTS.md`
 - **Purpose:** Top-level executive benchmark summary.
 - **How it fits into overall flow:** Provides a concise, high-level summary of system performance for decision-making.
-- **Block-by-block explanation:**
   - *Section 8:* Tabulates the final Phase E4 verification matrix, highlighting key diagnostic improvements over legacy D0 and undefended FedAvg.
+
+## Phase E4.1: Systematic Hardening & Residual Flaw Resolution
+
+### `configs/default.yaml`
+- **Purpose:** Central parameter source of truth across all federated learning, trust, reputation, and state machine components.
+- **How it fits into overall flow:** Provides updated calibrated thresholds for update norm scaling, per-class head energy gating, and anomaly detection.
+- **Block-by-block explanation:**
+  - *`trust.evidence.norm_z_anomaly_threshold` (1.8):* Lowers conditional norm anomaly trigger threshold from 4.0 to 1.8. In plain language, adversaries using a boost factor of 2.0 produce Z-scores around 2.0; the previous threshold of 4.0 let them pass unnoticed when validation probes were blind.
+  - *`trust.evidence.target_class_degradation_threshold` (-0.05):* Requires a 5% absolute F1 drop before flagging class degradation. Micro-fluctuations (-2.5%) occur naturally on low-support classes under non-IID SGD; this threshold suppresses those false alarms.
+  - *`trust.detector.energy_share_gate` (0.40):* Raises the head gradient energy gate from 0.04 to 0.40. Across 8 classes, baseline uniform energy is $1/\sqrt{8} \approx 0.35$; the previous 0.04 threshold was always True for all clients. 0.40 specifically targets adversaries concentrating gradients on a single poisoned class ($0.58 \pm 0.05$).
+  - *`trust.detector.norm_scale_power` (0.585):* Configures power scaling $(n_i / \bar{n})^{0.585}$ for update norm normalization, mathematically neutralizing the correlation between client dataset size and update norm.
+
+### `src/trust/validator.py`
+- **Purpose:** Multi-signal evaluation engine inspecting candidate model updates.
+- **How it fits into overall flow:** Validates client updates against reference geometric median, cohort angle distribution, and validation set probes.
+- **Block-by-block explanation:**
+  - *Calibrated Power Norm Scaling:* Replaces square root ($\sqrt{n_i}$) with $(n_i / \bar{n})^{0.585}$. In plain language, clients with more data take more mini-batch SGD steps; scaling by 0.585 power neutralizes this natural drift so large honest clients are not falsely labeled as norm outliers ($\rho \approx 0.00$).
+  - *Coupled Norm & Angle Anomaly Trigger:* Flags `ABNORMAL_UPDATE_NORM` when $Z > 1.8$ and cosine similarity is below cohort floor or acute threshold ($\cos < 0.20$), or when global validation impact drops. This catches stealthy scaled attacks even when single-class validation F1 is at 0.0.
+  - *D2 Concentrated Energy Gating:* Requires that a class degradation flag only fires if the drop is severe ($imp < -0.08$) OR the client exhibits concentrated head gradient steering ($energy\_share \ge 0.40$).
+
+### `src/trust/reputation.py`
+- **Purpose:** Tracks per-attack-class reputation vectors $R_t(i, c) \in [0, 1]$ using EWMA.
+- **How it fits into overall flow:** Directly governs client head weights during decoupled aggregation.
+- **Block-by-block explanation:**
+  - *Sharpened Norm Quality:* Lowers unpenalized norm threshold to $|Z| \le 1.8$.
+  - *Flag-Responsive Reputation Collapse:* When `TARGET_CLASS_DEGRADATION_{cls}` fires, directly sets $Q(i, c) = 0.10$ and triggers `accelerated_eta = 0.50`. In plain language, rather than letting cosine and norm dilute the penalty, a confirmed attack on class $c$ causes class $c$'s reputation to immediately fall below 0.65 ($R_t \approx 0.55$), locking out the attacker's head updates on that class on the very next round.
+
+### `src/trust/state_machine.py`
+- **Purpose:** 3-tier security lifecycle coordinator (TRUSTED $\to$ PROBATION $\to$ QUARANTINED).
+- **How it fits into overall flow:** Controls client participation state factor and shadow recovery.
+- **Block-by-block explanation:**
+  - *Warmup Exit Clean Slate:* At `round_num == warmup_rounds + 1`, resets `consecutive_bad = 0` if evidence is below hard quarantine threshold. In plain language, this eliminates the "dam break" bug where honest clients 4 and 6 accumulated strikes during warmup noise and were instantly quarantined on Round 6.
+
+### `src/trust/evidence.py`
+- **Purpose:** Temporal evidence tracker aggregating multi-signal indicators over rounds.
+- **How it fits into overall flow:** Computes persistent evidence score $E_t(i)$ driving the state machine.
+- **Block-by-block explanation:**
+  - *Warmup Horizon Strike Suppression:* Suppresses `consecutive_bad` incrementation during `round_num <= warmup_rounds`, ensuring that initial model exploration does not build up premature strike counts.
+
+### `src/experiments/run_phase_e4_verification.py`
+- **Purpose:** Reproducible 36-simulation benchmark script comparing FedAvg, D0, and Fixed defense.
+- **How it fits into overall flow:** Runs empirical verification on CPU/GPU.
+- **Block-by-block explanation:**
+  - Updated `is_fixed` validator instantiation with `energy_share_gate=0.40`, `norm_scale_power=0.585`, and `warmup_rounds=5`.
+
+### `tests/test_variants.py`
+- **Purpose:** Unit and regression test suite.
+- **How it fits into overall flow:** Ensures zero regressions across all components.
+- **Block-by-block explanation:**
+  - Added `test_warmup_exit_clean_slate`: verifies `consecutive_bad` resets to 0 at round 6.
+  - Added `test_norm_power_scaling_neutralization`: verifies power scaling equalizes norms across 50x sample disparities.
+  - Added `test_concentrated_energy_gate_discrimination`: verifies thresholds discriminate concentrated steering.
+  - Added `test_flagged_class_degradation_collapses_reputation`: verifies class reputation collapses below 0.65 lockout on flagged degradation.
+
 
 
 

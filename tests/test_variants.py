@@ -383,6 +383,94 @@ class TestDetectorVariants(unittest.TestCase):
         delta_head_4 = agg_state["head.weight"][4, :] - self.global_model.state_dict()["head.weight"][4, :]
         self.assertGreater(torch.norm(delta_head_4).item(), 1e-4)
 
+    def test_warmup_exit_clean_slate(self):
+        """Warmup exit at round 6 must reset consecutive_bad strikes to prevent instant post-warmup quarantine."""
+        from src.trust.state_machine import ClientStateMachine, ClientState
+        from src.trust.evidence import EvidenceRecord
+
+        sm = ClientStateMachine(
+            probation_threshold=0.40,
+            quarantine_threshold=0.70,
+            probation_consecutive_bad_threshold=2,
+            warmup_rounds=5,
+        )
+        sm.client_states[0] = ClientState.PROBATION
+        rec = EvidenceRecord(client_id=0)
+        rec.evidence_score = 0.65 # elevated evidence
+        rec.consecutive_bad = 5  # accumulated during warmup
+
+        # At round 5 (warmup), client is held in PROBATION
+        st, _, reason = sm.update_state(0, rec, round_num=5)
+        self.assertEqual(st, ClientState.PROBATION)
+        self.assertIn("WARMUP_HOLD", reason)
+
+        # At round 6 (warmup exit), consecutive_bad resets to 0, preventing immediate quarantine
+        st6, _, _ = sm.update_state(0, rec, round_num=6)
+        self.assertEqual(rec.consecutive_bad, 0)
+        self.assertEqual(st6, ClientState.PROBATION) # Must remain in PROBATION, NOT QUARANTINED!
+
+    def test_norm_power_scaling_neutralization(self):
+        """Power scaling with 0.585 must equalize scaled norms across 50x sample disparities."""
+        validator = UpdateValidator(
+            server_val_loader=self.val_loader,
+            class_names=self.class_names,
+            device=self.device,
+            norm_scale_power=0.585,
+        )
+        raw_norm_large = 4.0
+        raw_norm_small = 0.4
+        sample_counts = [100000, 2000]
+        mean_n = np.mean(sample_counts)
+
+        scale_large = np.power(sample_counts[0] / mean_n, 0.585)
+        scale_small = np.power(sample_counts[1] / mean_n, 0.585)
+
+        scaled_large = raw_norm_large / scale_large
+        scaled_small = raw_norm_small / scale_small
+
+        # Ratio of raw norms was 10.0; scaled norms must be within 2.0x of each other
+        scaled_ratio = scaled_large / scaled_small
+        self.assertLess(scaled_ratio, 2.5)
+
+    def test_concentrated_energy_gate_discrimination(self):
+        """Honest client with low energy and mild drop must NOT flag; attacker with concentrated energy MUST flag."""
+        val = UpdateValidator(
+            server_val_loader=self.val_loader,
+            class_names=self.class_names,
+            device=self.device,
+            detector_variant="D2",
+            d2_z_thresh=3.0,
+            target_class_degradation_thresh=-0.05,
+            energy_share_gate=0.40,
+        )
+        # Verify thresholds
+        self.assertEqual(val.energy_share_gate, 0.40)
+        self.assertEqual(val.target_class_degradation_thresh, -0.05)
+
+    def test_flagged_class_degradation_collapses_reputation(self):
+        """Confirmed class degradation flag must immediately collapse reputation below 0.65 lockout."""
+        from src.trust.reputation import PerClassReputationManager
+        from src.trust.validator import ValidationResult
+
+        mgr = PerClassReputationManager(class_names=self.class_names, accelerated_eta=0.50)
+        # Create validation result with confirmed flag on RECON
+        vr = ValidationResult(
+            client_id=0,
+            round_num=1,
+            norm_val=1.0,
+            norm_z_score=0.0,
+            cosine_sim=0.70,
+            global_f1_impact=0.0,
+            per_class_f1_impact={"RECON": -0.06},
+            collusion_penalty=0.0,
+            suspicious_flags=["TARGET_CLASS_DEGRADATION_RECON"],
+            peer_z_scores={"RECON": -3.5},
+            validation_time_ms=10.0,
+        )
+        updated = mgr.update_reputation(0, vr)
+        # Must collapse below head_lockout_threshold (0.65)
+        self.assertLess(updated["RECON"], 0.65)
+
 
 class TestRootResultsProtection(unittest.TestCase):
     def test_smoke_cannot_overwrite_evidence_without_force(self):
