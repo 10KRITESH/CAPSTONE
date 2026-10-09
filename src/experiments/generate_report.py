@@ -85,7 +85,25 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
         except Exception:
             pass
 
-    git_commit = get_git_commit()
+    # Determine git commit from metadata or existing report if available, else HEAD
+    git_commit = None
+    meta_path = run_dir / "run_metadata.json"
+    if meta_path.exists():
+        try:
+            with open(meta_path) as f:
+                git_commit = json.load(f).get("git_commit")
+        except Exception:
+            pass
+    if not git_commit:
+        existing_report = run_dir / "RESULTS.md"
+        if existing_report.exists():
+            import re as _re
+            m = _re.search(r"# Git Commit:\s*([a-f0-9]+)", existing_report.read_text(encoding="utf-8"))
+            if m:
+                git_commit = m.group(1)
+    if not git_commit:
+        git_commit = get_git_commit()
+
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Determine partition seeds, train seeds, rounds
