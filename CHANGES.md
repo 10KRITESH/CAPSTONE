@@ -893,3 +893,32 @@
   - *`test_switch_probation_threshold_changes_state_transition`:* Verifies that changing `probation_threshold` alters whether intermediate evidence triggers probation.
   - *`test_switch_d2_z3_identity_and_effect`:* Documents that `d2_z3` with $z=3.0$ is bit-identical to the `fixed` baseline and tests threshold sensitivity.
 
+### `src/experiments/run_step1_isolation.py`
+- **Purpose:** Full $2 \times 2$ factorial isolation experiment resolving the legacy D0 quarantine jump between Phase E4 and Phase E4.1.
+- **How it fits into overall flow:** Crosses the training loop (DataLoader vs. GPU resident VRAM tensors) with the validation engine (Old Sklearn vs. Fast GPU tensor with and without `model.eval()`).
+- **Block-by-block explanation:**
+  - *Factorial Cross-Terms (Conditions A, B, C, D):* Proves that the training loop has 0.0% impact on the quarantine jump. Pinpoints the root cause to `Dropout(0.3)` active in `_evaluate_fast` when `model.eval()` was absent.
+
+### `src/experiments/run_step5_and_step7.py`
+- **Purpose:** Continuous signal telemetry extraction and bimodal outcome analysis for Step 0.4.
+- **How it fits into overall flow:** Executes label-flip and boosted-head poisoning under log-only conditions, extracting raw feature distributions to evaluate ROC-AUCs, and generates the per-config bimodal outcome table.
+- **Block-by-block explanation:**
+  - *AUC Metric Extraction:* Computes ROC-AUC for head update energy, EWMA probe degradation, peer Z scores, and composite evidence.
+  - *Bimodal Outcome Table:* Links attacker sample shares, quarantine timing, and resulting RECON F1 across all calibration configs.
+
+### `src/experiments/run_phase_e4_2b.py`
+- **Purpose:** Master benchmark runner orchestrating all Phase E4.2b simulations across 15 calibration configs.
+- **How it fits into overall flow:** Runs 390 simulations covering candidates C0 through C9 (clean and attacked), operational curves (Oracle T=1, T=10), and 60-round collapse checks, streaming results incrementally to disk.
+- **Block-by-block explanation:**
+  - *Resumable Execution:* Scans `runs.jsonl` on startup, skipping already completed runs to survive interruptions without redundant compute.
+  - *Real-Time Telemetry Streaming:* Appends round-by-round client records directly to `telemetry.csv` for post-hoc attribution and ROC analysis.
+
+### `src/experiments/analyze_phase_e4_2b.py`
+- **Purpose:** Comprehensive post-run analysis generator producing all required tables for Phase E4.2b.
+- **How it fits into overall flow:** Reads `runs.jsonl` and `telemetry.csv`, computes bootstrap confidence intervals, clusters by partition, generates decision tables, and writes `reports/phase_e4_2b/RESULTS.md`.
+- **Block-by-block explanation:**
+  - *Bootstrap CI Estimation (`bootstrap_ci`, `cluster_bootstrap_ci`):* Computes standard percentile bootstrap CIs and cluster-bootstrap CIs across partitions.
+  - *Decision Matrix Construction:* Evaluates candidate utility, robustness, attribution, and overhead relative to Coordinate Median.
+  - *Config Freezing:* Serializes candidate YAML configs to `configs/candidates/` with SHA-256 hashes.
+
+
