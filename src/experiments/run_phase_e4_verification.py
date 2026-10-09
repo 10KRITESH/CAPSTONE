@@ -265,8 +265,9 @@ def run_single_simulation(
         rep_manager = None
         evidence_tracker = None
 
-    # Pre-build client training datasets and class weights
-    client_datasets = []
+    # Pre-build client GPU training tensors and class weights
+    client_X_gpu = []
+    client_y_gpu = []
     client_weights = []
     for cid in range(10):
         df_c = client_dfs[cid]
@@ -275,15 +276,19 @@ def run_single_simulation(
         else:
             df_train = df_c
 
-        X_tensor = torch.from_numpy(df_train[feature_cols].to_numpy(dtype="float32").copy())
-        y_tensor = torch.from_numpy(df_train["label"].to_numpy(dtype="int64").copy())
+        X_tensor = torch.from_numpy(df_train[feature_cols].to_numpy(dtype="float32").copy()).to(device)
+        y_tensor = torch.from_numpy(df_train["label"].to_numpy(dtype="int64").copy()).to(device)
 
         class_counts = torch.bincount(y_tensor, minlength=8).float()
         cw = 1.0 / (class_counts + 1.0)
         c_weights = (cw / cw.mean()).to(device)
 
-        client_datasets.append(TensorDataset(X_tensor, y_tensor))
+        client_X_gpu.append(X_tensor)
+        client_y_gpu.append(y_tensor)
         client_weights.append(c_weights)
+
+    # Pre-instantiate local model to avoid allocating nn.Module 300 times
+    loc_model = IDS_MLP(in_features=len(feature_cols), num_classes=8).to(device)
 
     telemetry_records = []
     quarantine_schedule = []
@@ -292,40 +297,37 @@ def run_single_simulation(
     for r in range(1, num_rounds + 1):
         # 1. Local Training
         client_updates = []
+        g_state = global_model.state_dict()
         for cid in range(10):
-            dataset = client_datasets[cid]
+            Xc = client_X_gpu[cid]
+            yc = client_y_gpu[cid]
             class_weights = client_weights[cid]
+            N = Xc.shape[0]
 
-            gen = torch.Generator().manual_seed(train_seed + r * 1000 + cid)
-            loader = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                drop_last=(len(dataset) > batch_size),
-                generator=gen,
-                pin_memory=(device.type == "cuda"),
-            )
-
-            loc_model = IDS_MLP(in_features=len(feature_cols), num_classes=8).to(device)
-            loc_model.load_state_dict(global_model.state_dict())
+            loc_model.load_state_dict(g_state)
             opt = torch.optim.Adam(loc_model.parameters(), lr=1e-3, weight_decay=1e-4)
             crit = nn.CrossEntropyLoss(weight=class_weights)
 
+            gen = torch.Generator(device=device if device.type == "cuda" else None).manual_seed(train_seed + r * 1000 + cid)
+            perm = torch.randperm(N, generator=gen, device=device)
+
             loc_model.train()
-            for X_b, y_b in loader:
-                X_b, y_b = X_b.to(device, non_blocking=True), y_b.to(device, non_blocking=True)
+            num_batches = (N // batch_size) if N > batch_size else 1
+            step_size = batch_size if N > batch_size else N
+            for b in range(num_batches):
+                idx = perm[b * step_size : (b + 1) * step_size]
                 opt.zero_grad(set_to_none=True)
-                crit(loc_model(X_b), y_b).backward()
+                crit(loc_model(Xc[idx]), yc[idx]).backward()
                 opt.step()
 
-            # Parameter delta
+            # Parameter delta computed on device, then moved to CPU dict
+            loc_state = loc_model.state_dict()
             u = {}
-            for k, v in global_model.state_dict().items():
+            for k, v in g_state.items():
                 if torch.is_floating_point(v):
-                    delta = loc_model.state_dict()[k].cpu() - v.cpu()
-                    u[k] = delta
+                    u[k] = (loc_state[k] - v).cpu()
                 else:
-                    u[k] = loc_model.state_dict()[k].cpu()
+                    u[k] = loc_state[k].cpu()
 
             if cid in malicious_set:
                 u = attacks[cid].poison_update(u, round_num=r)

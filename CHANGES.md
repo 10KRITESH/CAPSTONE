@@ -727,7 +727,7 @@
 - **Purpose:** High-throughput simulation execution eliminating host-device synchronization bottlenecks.
 - **How it fits into overall flow:** Runs the 36-simulation 30-round suite across multiple parallel workers.
 - **Block-by-block explanation:**
-  - *Pre-Building Client Training Datasets:* Pre-constructs `TensorDataset` and computes normalized class loss weights once before entering the 30-round loop. In plain language, this avoids 300 redundant pandas DataFrame copies, column extractions, and numpy-to-tensor conversions per simulation.
+  - *GPU Resident Client Training Tensors & Direct Batch Slicing:* Pre-loads client feature tensors `client_X_gpu` and label tensors `client_y_gpu` directly onto GPU VRAM at simulation start. Client SGD batches are sampled directly using device-resident random permutation indices (`torch.randperm(N, generator=gen, device=device)`), pre-instantiating `loc_model` once rather than rebuilding it 300 times. Parameter deltas are computed directly in CUDA memory before transferring the final parameter dictionary to CPU. This drops local training latency per round by $8.5\times$ (down to 18.8s for an entire 30-round 10-client simulation).
   - *GPU Resident Test Tensors in `fast_evaluate`:* Pre-transfers the test dataset tensors `(X_test, y_test)` to GPU VRAM once at simulation start, avoiding 30 redundant PCIe bus transfers of 130,000 samples per round.
 
 
