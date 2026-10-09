@@ -76,34 +76,26 @@ class SubClusterCollusionDetector:
         if num_clients < self.min_group_size:
             return {c_id: 0.0 for c_id in client_ids}
 
-        # 1. Flatten all updates into 1D vectors
-        flat_updates = [flatten_update(u) for u in updates]
+        # 1. Flatten all updates into 1D vectors (if not already flat)
+        if updates and isinstance(updates[0], torch.Tensor):
+            flat_updates = updates
+        else:
+            flat_updates = [flatten_update(u) for u in updates]
 
-        # 2. Compute full pairwise cosine similarity matrix S_ij
-        S = np.ones((num_clients, num_clients), dtype=np.float32)
-        ref_sims = np.zeros(num_clients, dtype=np.float32)
-        ref_norm = torch.norm(reference_flat).item()
+        # 2. Vectorized pairwise cosine similarity matrix S_ij and ref_sims
+        X = torch.stack(flat_updates)
+        norms = torch.norm(X, dim=1, keepdim=True)
+        mask = (norms > 1e-8)
+        X_norm = torch.where(mask, X / torch.clamp(norms, min=1e-8), torch.zeros_like(X))
+        r_norm = torch.norm(reference_flat).item()
+        ref_n = (reference_flat / r_norm) if r_norm > 1e-8 else torch.zeros_like(reference_flat)
 
-        for i in range(num_clients):
-            u_i = flat_updates[i]
-            norm_i = torch.norm(u_i).item()
+        S_vec = torch.mm(X_norm, X_norm.t()).clamp(-1.0, 1.0)
+        S_vec.fill_diagonal_(1.0)
+        S = S_vec.cpu().numpy()
 
-            if norm_i > 1e-8 and ref_norm > 1e-8:
-                cos_ref = (torch.dot(u_i, reference_flat) / (norm_i * ref_norm)).item()
-                ref_sims[i] = float(np.clip(cos_ref, -1.0, 1.0))
-            else:
-                ref_sims[i] = 1.0
-
-            for j in range(i + 1, num_clients):
-                u_j = flat_updates[j]
-                norm_j = torch.norm(u_j).item()
-                if norm_i > 1e-8 and norm_j > 1e-8:
-                    cos_ij = (torch.dot(u_i, u_j) / (norm_i * norm_j)).item()
-                    cos_ij = float(np.clip(cos_ij, -1.0, 1.0))
-                else:
-                    cos_ij = 0.0
-                S[i, j] = cos_ij
-                S[j, i] = cos_ij
+        ref_sims = torch.mv(X_norm, ref_n).clamp(-1.0, 1.0).cpu().numpy()
+        ref_sims[~mask.squeeze().cpu().numpy()] = 1.0
 
         self.pairwise_matrix_cache = S
 
