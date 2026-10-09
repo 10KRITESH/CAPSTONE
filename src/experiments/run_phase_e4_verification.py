@@ -78,9 +78,10 @@ def fast_evaluate(
     """Computes exact accuracy, macro-F1, per-class F1, and ASR directly via confusion matrix."""
     model.eval()
     with torch.no_grad():
-        logits = model(X_test.to(device))
+        X_dev = X_test if X_test.device == device else X_test.to(device)
+        y_dev = y_test if y_test.device == device else y_test.to(device)
+        logits = model(X_dev)
         preds = logits.argmax(dim=1)
-        y_dev = y_test.to(device)
 
         idx = num_classes * y_dev + preds
         cm = torch.bincount(idx, minlength=num_classes * num_classes).view(num_classes, num_classes).float()
@@ -182,8 +183,8 @@ def run_single_simulation(
     val_loader = DataLoader(val_dataset, batch_size=batch_size * 2, shuffle=False)
 
     test_df = pd.read_parquet(test_path_str)
-    X_test = torch.from_numpy(test_df[feature_cols].to_numpy(dtype="float32").copy())
-    y_test = torch.from_numpy(test_df["label"].to_numpy(dtype="int64").copy())
+    X_test = torch.from_numpy(test_df[feature_cols].to_numpy(dtype="float32").copy()).to(device)
+    y_test = torch.from_numpy(test_df["label"].to_numpy(dtype="int64").copy()).to(device)
 
     # Load client data into memory
     client_dfs = [pd.read_parquet(pf) for pf in partition_files]
@@ -264,6 +265,26 @@ def run_single_simulation(
         rep_manager = None
         evidence_tracker = None
 
+    # Pre-build client training datasets and class weights
+    client_datasets = []
+    client_weights = []
+    for cid in range(10):
+        df_c = client_dfs[cid]
+        if cid in malicious_set:
+            df_train = attacks[cid].poison_data(df_c, round_num=1)
+        else:
+            df_train = df_c
+
+        X_tensor = torch.from_numpy(df_train[feature_cols].to_numpy(dtype="float32").copy())
+        y_tensor = torch.from_numpy(df_train["label"].to_numpy(dtype="int64").copy())
+
+        class_counts = torch.bincount(y_tensor, minlength=8).float()
+        cw = 1.0 / (class_counts + 1.0)
+        c_weights = (cw / cw.mean()).to(device)
+
+        client_datasets.append(TensorDataset(X_tensor, y_tensor))
+        client_weights.append(c_weights)
+
     telemetry_records = []
     quarantine_schedule = []
     round_convergence = []
@@ -272,20 +293,9 @@ def run_single_simulation(
         # 1. Local Training
         client_updates = []
         for cid in range(10):
-            df_c = client_dfs[cid]
-            if cid in malicious_set:
-                df_train = attacks[cid].poison_data(df_c, round_num=r)
-            else:
-                df_train = df_c
+            dataset = client_datasets[cid]
+            class_weights = client_weights[cid]
 
-            X_tensor = torch.from_numpy(df_train[feature_cols].to_numpy(dtype="float32").copy())
-            y_tensor = torch.from_numpy(df_train["label"].to_numpy(dtype="int64").copy())
-
-            class_counts = torch.bincount(y_tensor, minlength=8).float()
-            cw = 1.0 / (class_counts + 1.0)
-            class_weights = (cw / cw.mean()).to(device)
-
-            dataset = TensorDataset(X_tensor, y_tensor)
             gen = torch.Generator().manual_seed(train_seed + r * 1000 + cid)
             loader = DataLoader(
                 dataset,

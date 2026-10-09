@@ -110,12 +110,37 @@ class UpdateValidator:
             decay_factor=col_cfg.get("decay_factor", 0.85),
         )
 
+    def _evaluate_fast(self, model: nn.Module) -> tuple[float, dict[str, float]]:
+        """Evaluates model on validation set. Uses GPU tensor confusion matrix if TensorDataset is available."""
+        if hasattr(self.server_val_loader, "dataset") and hasattr(self.server_val_loader.dataset, "tensors"):
+            if not hasattr(self, "_cached_val_tensors") or self._cached_val_tensors is None:
+                self._cached_val_tensors = (
+                    self.server_val_loader.dataset.tensors[0].to(self.device),
+                    self.server_val_loader.dataset.tensors[1].to(self.device),
+                )
+            X_val, y_val = self._cached_val_tensors
+            with torch.no_grad():
+                preds = model(X_val).argmax(dim=1)
+                num_c = len(self.class_names)
+                idx = num_c * y_val + preds
+                cm = torch.bincount(idx, minlength=num_c * num_c).view(num_c, num_c).float()
+                tp = cm.diag()
+                prec = tp / (tp + cm.sum(dim=0) - tp + 1e-10)
+                rec = tp / (cm.sum(dim=1) + 1e-10)
+                f1 = 2 * prec * rec / (prec + rec + 1e-10)
+                macro_f1 = f1.mean().item()
+                per_class = {c: f1[i].item() for i, c in enumerate(self.class_names)}
+                return macro_f1, per_class
+        else:
+            base_metrics = evaluate(model, self.server_val_loader, self.device, self.class_names)
+            return base_metrics["macro_f1"], {cls: m["f1"] for cls, m in base_metrics["per_class"].items()}
+
     def validate_updates(
         self,
         global_model: IDS_MLP,
         client_updates: list[dict[str, torch.Tensor]],
         client_ids: list[int | str],
-        round_num: int,
+        round_num: int = 1,
         sample_counts: list[int] | None = None,
     ) -> list[ValidationResult]:
         import time
@@ -164,9 +189,7 @@ class UpdateValidator:
         if is_cuda:
             torch.cuda.synchronize()
         t_probe_start = time.time()
-        base_val_metrics = evaluate(global_model, self.server_val_loader, self.device, self.class_names)
-        base_macro_f1 = base_val_metrics["macro_f1"]
-        base_class_f1 = {cls: m["f1"] for cls, m in base_val_metrics["per_class"].items()}
+        base_macro_f1, base_class_f1 = self._evaluate_fast(global_model)
 
         # 5. Evaluate semantic validation impacts & head gradient energy per client
         candidate_evals = []
@@ -197,11 +220,11 @@ class UpdateValidator:
             }
             candidate_model.load_state_dict(cand_dict)
 
-            cand_val_metrics = evaluate(candidate_model, self.server_val_loader, self.device, self.class_names)
-            global_impact = cand_val_metrics["macro_f1"] - base_macro_f1
+            cand_macro_f1, cand_per_class_f1 = self._evaluate_fast(candidate_model)
+            global_impact = cand_macro_f1 - base_macro_f1
 
             per_class_impact = {
-                cls: cand_val_metrics["per_class"][cls]["f1"] - base_class_f1[cls]
+                cls: cand_per_class_f1[cls] - base_class_f1[cls]
                 for cls in self.class_names
             }
             c_penalty = collusion_penalties.get(client_id, 0.0)
