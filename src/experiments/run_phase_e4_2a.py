@@ -292,6 +292,9 @@ def run_simulation(
         quarantine_th = custom_params.get("quarantine_threshold", 0.70)
         warmup_r = 0 if (is_legacy or custom_params.get("no_warmup")) else custom_params.get("warmup_rounds", 5)
 
+        use_cohort_cos = not custom_params.get("no_cohort_cosine", False)
+        enable_reset = not custom_params.get("no_round6_reset", False)
+
         validator = UpdateValidator(
             server_val_loader=val_loader,
             class_names=class_names,
@@ -302,7 +305,13 @@ def run_simulation(
             energy_share_gate=energy_gate,
             norm_scale_power=norm_power,
             target_class_degradation_thresh=probe_thresh,
+            use_cohort_cosine=use_cohort_cos,
         )
+
+        if custom_params.get("no_cohort_cosine"):
+            assert validator.use_cohort_cosine is False, "no_cohort_cosine failed to deactivate!"
+        if custom_params.get("no_norm_scaling"):
+            assert validator.norm_scale_power == 0.0, "no_norm_scaling failed to set norm_scale_power to 0.0!"
 
         if val_env == "old_val":
             def slow_eval(m_eval: nn.Module):
@@ -315,7 +324,14 @@ def run_simulation(
             quarantine_threshold=quarantine_th,
             probation_consecutive_bad_threshold=2,
             warmup_rounds=warmup_r,
+            enable_clean_slate=enable_reset,
         )
+
+        if custom_params.get("no_round6_reset"):
+            assert state_machine.enable_clean_slate is False, "no_round6_reset failed to deactivate!"
+        if custom_params.get("no_warmup"):
+            assert state_machine.warmup_rounds == 0, "no_warmup failed to set warmup_rounds to 0!"
+
         rep_manager = PerClassReputationManager(class_names=class_names)
         evidence_tracker = TemporalEvidenceTracker(warmup_rounds=warmup_r)
 

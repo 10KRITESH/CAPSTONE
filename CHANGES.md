@@ -852,3 +852,44 @@
   - *Pre-Allocated Client Buffers (`client_X_buf`, `client_y_buf`):* Allocates static GPU memory buffers matching client tensor shapes once at simulation startup. Instead of allocating fresh tensors via slice indexing on every round (`Xc[perm]`), PyTorch's native `torch.index_select(Xc, 0, perm, out=client_X_buf[cid])` writes permutations directly into pinned memory, eliminating 300 GPU DRAM allocations (~1.34 GB churn per simulation).
   - *Reusable Client Loss Functions (`client_criterions`):* Pre-instantiates class-weighted `nn.CrossEntropyLoss` objects for each client once outside the round loop rather than reconstructing them 300 times.
   - *Persistent CUDA RNG Generator (`rng_gen`):* Instantiates a single `torch.Generator` object on the target device and updates its seed dynamically with `.manual_seed(...)`, avoiding CUDA RNG context construction overhead.
+
+## Phase E4.2b: Rigorous Diagnostics, Reproducibility Fixes & Candidate Expansion
+
+### `src/trust/validator.py`
+- **Purpose:** Fixes evaluation non-determinism during validation probes and wires the cohort cosine bound ablation switch.
+- **How it fits into overall flow:** `UpdateValidator` evaluates candidate client updates against the validation dataset to detect malicious performance degradation and directional anomalies.
+- **Block-by-block explanation:**
+  - *Deterministic Validation with `model.eval()` in `_evaluate_fast()`:* When computing validation predictions and confusion matrices on GPU tensors, the model had previously remained in training mode (`model.train()`). Because `IDS_MLP` has `Dropout(p=0.30)`, 30% of neurons were being randomly zeroed during validation evaluation. Under Dirichlet $\alpha=0.5$ minority class distributions, this stochastic dropout noise caused temporary 2–3% drops in validation F1, falsely triggering degradation alarms and driving false quarantine rates up from 20% to 63%–100%. Adding `model.eval()` ensures inference is 100% deterministic, resolving the discrepancy identified in Step 0.3.
+  - *Ablation Wiring for `use_cohort_cosine`:* Added explicit parameter `use_cohort_cosine`. When `True` (baseline), the validator uses an adaptive lower bound based on cohort median and MAD (`med_cos - 2.5 * 1.4826 * mad_cos`). When `False` (`no_cohort_cosine`), it falls back to the static threshold (`-0.50`), allowing rigorous ablation testing.
+
+### `src/trust/state_machine.py`
+- **Purpose:** Wires the round-6 clean slate ablation switch into client trust state transitions.
+- **How it fits into overall flow:** `ClientStateMachine` tracks client health across rounds (`TRUSTED`, `PROBATION`, `QUARANTINED`) using cumulative evidence and consecutive bad round counts.
+- **Block-by-block explanation:**
+  - *Ablation Wiring for `enable_clean_slate`:* Added `enable_clean_slate: bool` parameter. When `True` (baseline), round 6 resets `consecutive_bad` strikes for clients that survived warmup below hard quarantine threshold (`E < 0.70`). When `False` (`no_round6_reset`), strikes accumulated during warmup are preserved, allowing empirical comparison of warmup exit policies.
+
+### `src/experiments/generate_report.py`
+- **Purpose:** Fixes metric pooling, replaces ambiguous percentages with exact $k/n$ counts, removes "unknown" modes, and populates missing report sections.
+- **How it fits into overall flow:** Generates the project benchmark summary [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md) directly from serialized execution runs in `runs.jsonl`.
+- **Block-by-block explanation:**
+  - *Clean vs. Attacked Condition Splitting:* Section 2 of `RESULTS.md` is strictly partitioned into `### 2.1 Clean Condition` and `### 2.2 Attacked Condition`. Attacker metrics (such as `Attacker Quarantine Rate`, `ASR`, and `RECON F1`) are displayed only for attacked runs; clean runs explicitly report `n/a`.
+  - *Exact $k/n$ Cell Formatting:* Replaced bare percentages with precise counts and percentages (e.g. `5/60 (8.3%)`, `6/12 (50.0%)`) so sample sizes and statistical power are transparent to the reader.
+  - *Defense Mode Label Resolution:* Fixed the appendix table to extract the defense identifier directly from `run.defense_type` instead of undefined dictionary keys, eliminating `"unknown"` labels.
+  - *Simulation Metrics Population:* Populated Section 3 with actual benchmark telemetry (sample distributions, mean runtimes, and compute overhead).
+
+### `src/experiments/run_phase_e4_2a.py`
+- **Purpose:** Passes wired ablation parameters into validator and state machine instances and adds defensive runtime assertions.
+- **How it fits into overall flow:** The experiment runner constructs test configurations and runs local multi-process FL simulations.
+- **Block-by-block explanation:**
+  - *Forwarding Ablation Overrides:* Passes `use_cohort_cosine = not custom_params.get("no_cohort_cosine", False)` to `UpdateValidator` and `enable_clean_slate = not custom_params.get("no_round6_reset", False)` to `ClientStateMachine`.
+  - *Defensive Runtime Assertions:* Added assertions verifying that when ablation flags are present in `custom_params`, the instantiated component's internal parameters actually match the intended ablation (e.g. `assert validator.use_cohort_cosine is False`).
+
+### `tests/test_variants.py`
+- **Purpose:** Unit and regression test suite verifying detector variants, state transitions, and ablation switches.
+- **How it fits into overall flow:** Validates that math and control switches behave predictably before executing long benchmarks.
+- **Block-by-block explanation:**
+  - *`test_switch_no_cohort_cosine_changes_internal_floor`:* Verifies that `use_cohort_cosine=False` modifies validator internal state and executes correctly.
+  - *`test_switch_no_round6_reset_changes_consecutive_bad`:* Verifies that disabling clean slate retains `consecutive_bad` strikes at round 6.
+  - *`test_switch_probation_threshold_changes_state_transition`:* Verifies that changing `probation_threshold` alters whether intermediate evidence triggers probation.
+  - *`test_switch_d2_z3_identity_and_effect`:* Documents that `d2_z3` with $z=3.0$ is bit-identical to the `fixed` baseline and tests threshold sensitivity.
+

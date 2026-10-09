@@ -54,6 +54,7 @@ class ClientStateMachine:
         config: Optional[dict] = None,
         soft_containment: bool = False,
         warmup_rounds: int = 0,
+        enable_clean_slate: bool | None = None,
     ) -> None:
         cfg = config or {}
         sm_cfg = cfg.get("trust", {}).get("state_machine", {})
@@ -65,6 +66,7 @@ class ClientStateMachine:
         self.k2_recovery_rounds = sm_cfg.get("k2_recovery_rounds", k2_recovery_rounds)
         self.soft_containment = bool(soft_containment) if soft_containment is not None else bool(sm_cfg.get("soft_containment", False))
         self.warmup_rounds = sm_cfg.get("warmup_rounds", warmup_rounds)
+        self.enable_clean_slate = enable_clean_slate if enable_clean_slate is not None else sm_cfg.get("enable_clean_slate", True)
         
         default_sf = state_factors or {"trusted": 1.0, "probation_floor": 0.20, "quarantined": 0.0}
         self.state_factors_cfg = sm_cfg.get("state_factors", default_sf)
@@ -131,7 +133,7 @@ class ClientStateMachine:
 
         # Warmup exit clean slate: when round_num crosses warmup horizon,
         # reset consecutive_bad strikes if evidence is below hard quarantine threshold
-        if round_num == self.warmup_rounds + 1 and evidence_rec.consecutive_bad > 0 and E < self.quarantine_threshold:
+        if self.enable_clean_slate and round_num == self.warmup_rounds + 1 and evidence_rec.consecutive_bad > 0 and E < self.quarantine_threshold:
             evidence_rec.consecutive_bad = 0
             bad = 0
 

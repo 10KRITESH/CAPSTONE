@@ -160,58 +160,94 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
             lines.append(f"- **Mean Realized Attacker RECON Share:** `{mean_atk_share*100:.1f}%`")
     lines.append("")
 
-    # Section 2: Comparison Matrix
-    lines.append("## 2. Empirical Performance Matrix (Clean vs. Attacked)")
-    lines.append("| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quarantine (%) | Honest Data Excluded (%) | Attacker Quar Det (%) | Attacker Prob Det (%) |")
+    # Section 2: Comparison Matrix (Clean vs. Attacked strictly split)
+    lines.append("## 2. Empirical Performance Matrix")
+    
+    # 2.1 Clean Condition
+    lines.append("### 2.1 Clean Condition (No Attackers)")
+    lines.append("| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: |")
+
+    df_clean = df_runs[df_runs["is_attacked"] == False] if "is_attacked" in df_runs.columns else pd.DataFrame()
+    for m in modes:
+        sub = df_clean[df_clean[col_name] == m] if not df_clean.empty else pd.DataFrame()
+        if sub.empty:
+            continue
+        macro_mean, macro_lo, macro_hi = bootstrap_ci(sub["macro_f1"].dropna().tolist())
+        recon_mean, recon_lo, recon_hi = bootstrap_ci(sub["recon_f1"].dropna().tolist())
+        n_sims = len(sub)
+        n_honest_total = n_sims * 10
+        k_honest_quar = int(round(sub["honest_quar_rate"].sum() * 10)) if "honest_quar_rate" in sub.columns else 0
+        hq_pct = (k_honest_quar / n_honest_total * 100) if n_honest_total > 0 else 0.0
+        hde = sub["honest_data_exclusion"].mean() * 100 if "honest_data_exclusion" in sub.columns else 0.0
+        lines.append(
+            f"| **{m}** | {macro_mean*100:.2f}% [{macro_lo*100:.2f}%, {macro_hi*100:.2f}%] | "
+            f"{recon_mean*100:.2f}% [{recon_lo*100:.2f}%, {recon_hi*100:.2f}%] | "
+            f"{k_honest_quar}/{n_honest_total} ({hq_pct:.1f}%) | {hde:.1f}% |"
+        )
+    lines.append("")
+
+    # 2.2 Attacked Condition
+    lines.append("### 2.2 Attacked Condition (Targeted Label Flip)")
+    lines.append("| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) | Attacker Quar Det (k/n) | Attacker Prob Det (k/n) |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
-    # If verification_summary.json exists with precomputed bootstrap matrix, use it; else compute
-    if "matrix" in summary_data:
-        for row in summary_data["matrix"]:
-            lines.append(
-                f"| **{row.get('Mode', '')}** | {row.get('Macro-F1 (%)', 'n/a')} | {row.get('RECON F1 (%)', 'n/a')} | "
-                f"{row.get('ASR (%)', 'n/a')} | {row.get('Honest Quarantine (%)', 'n/a')} | "
-                f"{row.get('Honest Data Excluded (%)', 'n/a')} | {row.get('Attacker Quar Det (%)', 'n/a')} | "
-                f"{row.get('Attacker Prob Det (%)', 'n/a')} |"
-            )
-    else:
-        for m in modes:
-            sub = df_runs[df_runs[col_name] == m]
-            if len(sub) == 0:
-                continue
-            macro_mean, macro_lo, macro_hi = bootstrap_ci(sub["macro_f1"].dropna().tolist())
-            recon_mean, recon_lo, recon_hi = bootstrap_ci(sub["recon_f1"].dropna().tolist())
-            asr_mean, asr_lo, asr_hi = bootstrap_ci(sub["asr"].dropna().tolist())
-            hq = sub["honest_quar_rate"].mean() * 100 if "honest_quar_rate" in sub.columns else 0.0
-            hde = sub["honest_data_exclusion"].mean() * 100 if "honest_data_exclusion" in sub.columns else 0.0
-            aq = sub["attacker_quar_rate"].mean() * 100 if "attacker_quar_rate" in sub.columns else 0.0
-            ap = sub["attacker_prob_rate"].mean() * 100 if "attacker_prob_rate" in sub.columns else 0.0
-            lines.append(
-                f"| **{m}** | {macro_mean*100:.2f}% [{macro_lo*100:.2f}%, {macro_hi*100:.2f}%] | "
-                f"{recon_mean*100:.2f}% [{recon_lo*100:.2f}%, {recon_hi*100:.2f}%] | "
-                f"{asr_mean*100:.2f}% [{asr_lo*100:.2f}%, {asr_hi*100:.2f}%] | "
-                f"{hq:.1f}% | {hde:.1f}% | {aq:.1f}% | {ap:.1f}% |"
-            )
+    df_atk = df_runs[df_runs["is_attacked"] == True] if "is_attacked" in df_runs.columns else df_runs
+    for m in modes:
+        sub = df_atk[df_atk[col_name] == m] if not df_atk.empty else pd.DataFrame()
+        if sub.empty:
+            continue
+        macro_mean, macro_lo, macro_hi = bootstrap_ci(sub["macro_f1"].dropna().tolist())
+        recon_mean, recon_lo, recon_hi = bootstrap_ci(sub["recon_f1"].dropna().tolist())
+        asr_mean, asr_lo, asr_hi = bootstrap_ci(sub["asr"].dropna().tolist())
+        n_sims = len(sub)
+        n_honest_total = n_sims * 8
+        n_atk_total = n_sims * 2
+        k_honest_quar = int(round(sub["honest_quar_rate"].sum() * 8)) if "honest_quar_rate" in sub.columns else 0
+        hq_pct = (k_honest_quar / n_honest_total * 100) if n_honest_total > 0 else 0.0
+        hde = sub["honest_data_exclusion"].mean() * 100 if "honest_data_exclusion" in sub.columns else 0.0
+        k_atk_quar = int(round(sub["attacker_quar_rate"].sum() * 2)) if "attacker_quar_rate" in sub.columns else 0
+        aq_pct = (k_atk_quar / n_atk_total * 100) if n_atk_total > 0 else 0.0
+        k_atk_prob = int(round(sub["attacker_prob_rate"].sum() * 2)) if "attacker_prob_rate" in sub.columns else 0
+        ap_pct = (k_atk_prob / n_atk_total * 100) if n_atk_total > 0 else 0.0
+        lines.append(
+            f"| **{m}** | {macro_mean*100:.2f}% [{macro_lo*100:.2f}%, {macro_hi*100:.2f}%] | "
+            f"{recon_mean*100:.2f}% [{recon_lo*100:.2f}%, {recon_hi*100:.2f}%] | "
+            f"{asr_mean*100:.2f}% [{asr_lo*100:.2f}%, {asr_hi*100:.2f}%] | "
+            f"{k_honest_quar}/{n_honest_total} ({hq_pct:.1f}%) | {hde:.1f}% | "
+            f"{k_atk_quar}/{n_atk_total} ({aq_pct:.1f}%) | {k_atk_prob}/{n_atk_total} ({ap_pct:.1f}%) |"
+        )
     lines.append("")
 
     # Section 3: Diagnostic Telemetry
     lines.append("## 3. Diagnostic Telemetry & Flaw Analyses")
+    lines.append(f"- **Total Simulations Executed:** `{len(df_runs)}` (Clean: `{len(df_clean)}`, Attacked: `{len(df_atk)}`)")
+    if "wall_time_s" in df_runs.columns:
+        tot_wall = df_runs["wall_time_s"].sum()
+        mean_wall = df_runs["wall_time_s"].mean()
+        lines.append(f"- **Cumulative Simulation Time:** `{tot_wall:.1f}s` ({tot_wall/60:.1f}m, mean `{mean_wall:.2f}s` per simulation)")
+    if "attacker_recon_share" in df_runs.columns:
+        atk_runs = df_runs[df_runs["attacker_recon_share"] > 0]
+        if not atk_runs.empty:
+            min_sh = atk_runs["attacker_recon_share"].min() * 100
+            max_sh = atk_runs["attacker_recon_share"].max() * 100
+            mean_sh = atk_runs["attacker_recon_share"].mean() * 100
+            lines.append(f"- **Realized Attacker RECON Sample Share:** Mean `{mean_sh:.1f}%` (Min: `{min_sh:.1f}%`, Max: `{max_sh:.1f}%`)")
     corrs = summary_data.get("correlations", {})
     if corrs:
         lines.append(f"- **Norm Z Spearman Correlation with Sample Count:** $\\rho = {corrs.get('norm_z_spearman_with_sample_count', 0.0):.4f}$ ($p = {corrs.get('p_value', 1.0):.4e}$)")
-    if "total_wall_time_s" in summary_data:
-        lines.append(f"- **Suite Compute Wall Time:** `{summary_data['total_wall_time_s']:.1f} s` ({summary_data['total_wall_time_s']/60.0:.1f} min)")
     lines.append("")
 
     # Section 4: Paired Comparisons vs Baselines
-    if "mode" in df_runs.columns:
+    if "mode" in df_runs.columns or "defense_type" in df_runs.columns:
         lines.append("## 4. Paired Comparisons vs. Baselines (Attacked Condition)")
         lines.append("| Comparison | Metric | Proposed Mean | Baseline Mean | Paired Delta [95% CI] |")
         lines.append("| :--- | :--- | :---: | :---: | :---: |")
 
-        atk_fixed = df_runs[df_runs["mode"] == "attacked_fixed"].sort_values(by=["partition_seed", "train_seed"])
-        atk_fedavg = df_runs[df_runs["mode"] == "attacked_fedavg"].sort_values(by=["partition_seed", "train_seed"])
-        atk_d0 = df_runs[df_runs["mode"] == "attacked_d0"].sort_values(by=["partition_seed", "train_seed"])
+        c_col = "mode" if "mode" in df_runs.columns else "defense_type"
+        atk_fixed = df_atk[df_atk[c_col].isin(["attacked_fixed", "fixed"])].sort_values(by=["partition_seed", "train_seed"])
+        atk_fedavg = df_atk[df_atk[c_col].isin(["attacked_fedavg", "fedavg"])].sort_values(by=["partition_seed", "train_seed"])
+        atk_d0 = df_atk[df_atk[c_col].isin(["attacked_d0", "legacy_d0"])].sort_values(by=["partition_seed", "train_seed"])
 
         if len(atk_fixed) == len(atk_fedavg) and len(atk_fixed) > 0:
             for met, label in [("recon_f1", "RECON F1"), ("macro_f1", "Macro-F1"), ("asr", "ASR")]:
@@ -220,7 +256,7 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
                 diff = p_vals - b_vals
                 d_m, d_lo, d_hi = bootstrap_ci(diff)
                 lines.append(
-                    f"| `attacked_fixed` vs `attacked_fedavg` | {label} | {np.mean(p_vals)*100:.2f}% | "
+                    f"| `fixed` vs `fedavg` | {label} | {np.mean(p_vals)*100:.2f}% | "
                     f"{np.mean(b_vals)*100:.2f}% | {d_m*100:+.2f}% [{d_lo*100:+.2f}%, {d_hi*100:+.2f}%] |"
                 )
 
@@ -231,26 +267,33 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
                 diff = p_vals - b_vals
                 d_m, d_lo, d_hi = bootstrap_ci(diff)
                 lines.append(
-                    f"| `attacked_fixed` vs `attacked_d0` | {label} | {np.mean(p_vals)*100:.2f}% | "
+                    f"| `fixed` vs `legacy_d0` | {label} | {np.mean(p_vals)*100:.2f}% | "
                     f"{np.mean(b_vals)*100:.2f}% | {d_m*100:+.2f}% [{d_lo*100:+.2f}%, {d_hi*100:+.2f}%] |"
                 )
         lines.append("")
 
     # Section 5: Per-Simulation Telemetry
     lines.append("## 5. Appendix: Per-Simulation Telemetry Table")
-    lines.append("| Mode | Partition | Train Seed | Macro-F1 (%) | RECON F1 (%) | ASR (%) | Honest Quar (%) | Atk Det Quar (%) | Wall Time (s) |")
-    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    lines.append("| Mode | Condition | Partition | Train Seed | Macro-F1 (%) | RECON F1 (%) | ASR (%) | Honest Quar (k/n) | Atk Det Quar (k/n) | Wall Time (s) |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
     for _, r in df_runs.iterrows():
-        m_name = r.get("mode", r.get("method", "unknown"))
+        m_name = r.get("defense_type", r.get("mode", r.get("method", r.get("run_name", "unknown"))))
+        cond = "attacked" if r.get("is_attacked", False) else "clean"
         p_s = r.get("partition_seed", "-")
         t_s = r.get("train_seed", "-")
         mf1 = f"{r.get('macro_f1', 0.0)*100:.2f}%"
         rf1 = f"{r.get('recon_f1', 0.0)*100:.2f}%"
-        asrv = f"{r.get('asr', 0.0)*100:.2f}%"
-        hqv = f"{r.get('honest_quar_rate', 0.0)*100:.1f}%"
-        aqv = f"{r.get('attacker_quar_rate', 0.0)*100:.1f}%"
+        asrv = f"{r.get('asr', 0.0)*100:.2f}%" if r.get("is_attacked", False) else "n/a"
+        n_h = 8 if r.get("is_attacked", False) else 10
+        k_h = int(round(r.get("honest_quar_rate", 0.0) * n_h))
+        hqv = f"{k_h}/{n_h}"
+        if r.get("is_attacked", False):
+            k_a = int(round(r.get("attacker_quar_rate", 0.0) * 2))
+            aqv = f"{k_a}/2"
+        else:
+            aqv = "n/a"
         wt = f"{r.get('wall_time_s', 0.0):.1f}s"
-        lines.append(f"| `{m_name}` | {p_s} | {t_s} | {mf1} | {rf1} | {asrv} | {hqv} | {aqv} | {wt} |")
+        lines.append(f"| `{m_name}` | {cond} | {p_s} | {t_s} | {mf1} | {rf1} | {asrv} | {hqv} | {aqv} | {wt} |")
     lines.append("")
 
     report_content = "\n".join(lines)

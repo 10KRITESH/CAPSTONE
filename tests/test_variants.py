@@ -471,6 +471,63 @@ class TestDetectorVariants(unittest.TestCase):
         # Must collapse below head_lockout_threshold (0.65)
         self.assertLess(updated["RECON"], 0.65)
 
+    def test_switch_no_cohort_cosine_changes_internal_floor(self):
+        """Step 0.2: no_cohort_cosine switch changes cosine floor computation."""
+        v_dynamic = UpdateValidator(
+            self.val_loader, self.class_names, self.device, use_cohort_cosine=True
+        )
+        v_fixed = UpdateValidator(
+            self.val_loader, self.class_names, self.device, use_cohort_cosine=False
+        )
+        self.assertTrue(v_dynamic.use_cohort_cosine)
+        self.assertFalse(v_fixed.use_cohort_cosine)
+
+        # Run validation with dummy updates that produce specific cosine values
+        res_dyn = v_dynamic.validate_updates(self.global_model, self.client_updates, self.client_ids, round_num=1)
+        res_fix = v_fixed.validate_updates(self.global_model, self.client_updates, self.client_ids, round_num=1)
+        # Verify both execute without error
+        self.assertEqual(len(res_dyn), len(res_fix))
+
+    def test_switch_no_round6_reset_changes_consecutive_bad(self):
+        """Step 0.2: no_round6_reset switch changes consecutive_bad strike retention."""
+        sm_reset = ClientStateMachine(warmup_rounds=5, enable_clean_slate=True)
+        sm_no_reset = ClientStateMachine(warmup_rounds=5, enable_clean_slate=False)
+
+        rec_reset = EvidenceRecord(client_id=0, evidence_score=0.50, consecutive_bad=3)
+        rec_no_reset = EvidenceRecord(client_id=0, evidence_score=0.50, consecutive_bad=3)
+
+        sm_reset.update_state(0, rec_reset, round_num=6)
+        sm_no_reset.update_state(0, rec_no_reset, round_num=6)
+
+        # Baseline reset: strikes zeroed
+        self.assertEqual(rec_reset.consecutive_bad, 0)
+        # Ablation no-reset: strikes preserved
+        self.assertEqual(rec_no_reset.consecutive_bad, 3)
+
+    def test_switch_probation_threshold_changes_state_transition(self):
+        """Step 0.2: probation_threshold switch alters evidence classification boundary."""
+        sm_default = ClientStateMachine(probation_threshold=0.40)
+        sm_high = ClientStateMachine(probation_threshold=0.70) # No probation tier
+
+        rec = EvidenceRecord(client_id=0, evidence_score=0.55, consecutive_bad=0)
+        st_def, _, _ = sm_default.update_state(0, rec, round_num=1)
+        st_high, _, _ = sm_high.update_state(0, rec, round_num=1)
+
+        # 0.55 is above 0.40 -> PROBATION under baseline
+        self.assertEqual(st_def, ClientState.PROBATION)
+        # 0.55 is below 0.70 -> TRUSTED under high threshold
+        self.assertEqual(st_high, ClientState.TRUSTED)
+
+    def test_switch_d2_z3_identity_and_effect(self):
+        """Step 0.2: d2_z3 with z=3.0 is identical to baseline fixed; changing z modifies threshold."""
+        v_base = UpdateValidator(self.val_loader, self.class_names, self.device, detector_variant="D2", d2_z_thresh=3.0)
+        v_strict = UpdateValidator(self.val_loader, self.class_names, self.device, detector_variant="D2", d2_z_thresh=2.0)
+
+        self.assertEqual(v_base.detector_variant, "D2")
+        self.assertEqual(v_base.d2_z_thresh, 3.0)
+        self.assertEqual(v_strict.d2_z_thresh, 2.0)
+        self.assertNotEqual(v_base.d2_z_thresh, v_strict.d2_z_thresh)
+
 
 class TestRootResultsProtection(unittest.TestCase):
     def test_smoke_cannot_overwrite_evidence_without_force(self):

@@ -69,6 +69,7 @@ class UpdateValidator:
         energy_share_gate: float | None = None,
         norm_scale_power: float | None = None,
         target_class_degradation_thresh: float | None = None,
+        use_cohort_cosine: bool | None = None,
     ) -> None:
         self.server_val_loader = server_val_loader
         self.class_names = class_names
@@ -102,6 +103,7 @@ class UpdateValidator:
         self.mad_floor = mad_floor if mad_floor is not None else det_cfg.get("mad_floor", 0.015)
         self.energy_share_gate = energy_share_gate if energy_share_gate is not None else det_cfg.get("energy_share_gate", 0.40)
         self.norm_scale_power = norm_scale_power if norm_scale_power is not None else det_cfg.get("norm_scale_power", 0.585)
+        self.use_cohort_cosine = use_cohort_cosine if use_cohort_cosine is not None else det_cfg.get("use_cohort_cosine", cfg.get("use_cohort_cosine", True))
 
         self.collusion_detector = SubClusterCollusionDetector(
             similarity_threshold=col_cfg.get("similarity_threshold", 0.88),
@@ -119,6 +121,8 @@ class UpdateValidator:
                     self.server_val_loader.dataset.tensors[1].to(self.device),
                 )
             X_val, y_val = self._cached_val_tensors
+            was_training = model.training
+            model.eval()
             with torch.no_grad():
                 preds = model(X_val).argmax(dim=1)
                 num_c = len(self.class_names)
@@ -130,7 +134,9 @@ class UpdateValidator:
                 f1 = 2 * prec * rec / (prec + rec + 1e-10)
                 macro_f1 = f1.mean().item()
                 per_class = {c: f1[i].item() for i, c in enumerate(self.class_names)}
-                return macro_f1, per_class
+            if was_training:
+                model.train()
+            return macro_f1, per_class
         else:
             base_metrics = evaluate(model, self.server_val_loader, self.device, self.class_names)
             return base_metrics["macro_f1"], {cls: m["f1"] for cls, m in base_metrics["per_class"].items()}
@@ -243,10 +249,13 @@ class UpdateValidator:
                 peer_z_scores_by_client[cid][cls] = peer_z
 
         # Adaptive cohort-relative cosine lower bound (Flaw 3: accounts for non-IID angular spread)
-        cohort_cos_arr = np.array([ce["cosine_sim"] for ce in candidate_evals], dtype=float)
-        med_cos = float(np.median(cohort_cos_arr))
-        mad_cos = float(np.median(np.abs(cohort_cos_arr - med_cos)))
-        cohort_cos_floor = min(self.cosine_threshold, med_cos - 2.5 * 1.4826 * max(mad_cos, 0.05))
+        if self.use_cohort_cosine:
+            cohort_cos_arr = np.array([ce["cosine_sim"] for ce in candidate_evals], dtype=float)
+            med_cos = float(np.median(cohort_cos_arr))
+            mad_cos = float(np.median(np.abs(cohort_cos_arr - med_cos)))
+            cohort_cos_floor = min(self.cosine_threshold, med_cos - 2.5 * 1.4826 * max(mad_cos, 0.05))
+        else:
+            cohort_cos_floor = self.cosine_threshold
 
         results: list[ValidationResult] = []
         for ce in candidate_evals:
