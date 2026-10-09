@@ -1,0 +1,22 @@
+{
+  "id": "spector10/capstone-fl-part2",
+  "title": "capstone-fl-part2",
+  "code_file": "capstone-fl-part2.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "spector10/capstone-code",
+    "spector10/ciciot2023-fl-dev-partitions"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

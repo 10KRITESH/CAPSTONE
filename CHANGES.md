@@ -817,3 +817,27 @@
 - **How it fits into overall flow:** Dispatches the simulation runner with `--workers 12` rather than `--workers 8`, allowing 12 parallel simulations to execute simultaneously across dual Tesla T4 GPUs.
 - **Block-by-block explanation:**
   - Updated the execution command in Cell 4 from `--workers 8` to `--workers 12`.
+
+## Phase E4.2a+: Horizontal 3-Kernel Cloud Fleet Sharding
+
+### `src/experiments/merge_sharded_results.py`
+- **Purpose:** Merges artifacts (`runs.jsonl`, `client_telemetry.csv`, and runtime summaries) produced by horizontally sharded benchmark workers into a single unified directory and triggers report generation.
+- **How it fits into overall flow:** Enables horizontal fleet scaling across multiple cloud machines. Instead of running all 662 configurations inside a single notebook on 2 GPUs, the workload can be distributed across multiple independent notebooks (e.g. 3 kernels across 6 Tesla T4 GPUs) running concurrently in the cloud, then stitched back together seamlessly into a single comprehensive dataset and `RESULTS.md`.
+- **Block-by-block explanation:**
+  - *`extract_if_zip(path)`:* Automatically detects if an input shard is packaged as a `.zip` file (e.g. pulled directly from Kaggle output) and extracts it into an isolated sibling directory.
+  - *`merge_shards(input_paths, output_dir)`:*
+    - Scans every shard directory for `runs.jsonl` files and de-duplicates records using a hash set of `run_name`. This guarantees that even if overlapping configs were executed, only unique runs are retained.
+    - Scans every shard directory for `client_telemetry.csv`, preserves the primary CSV header row from the first shard, and appends all individual telemetry data rows.
+    - Inspects `summary_*.json` from all shards to compute the maximum shard wall-clock time (`max_shard_wall_time_s`).
+    - Writes the merged `runs.jsonl`, `client_telemetry.csv`, and a unified `summary_e4_2a.json`.
+    - Automatically invokes `generate_report(out_dir, Path("RESULTS.md"), update_root=True)` to rebuild the root benchmark results table and provenance metadata.
+
+### `kaggle/fleet/` (Distributed Cloud Fleet Shards & Orchestration)
+- **Purpose:** Provides a turn-key distributed cloud benchmark fleet that shards the 662 Phase E4.2a experiment configurations across 3 independent Kaggle kernels totaling 6 Tesla T4 GPUs.
+- **How it fits into overall flow:** Divides total cloud execution time by $3\times$. Running 662 simulations on a single 2-GPU instance takes ~22 minutes; by dispatching 3 kernels simultaneously across 6 GPUs, wall-clock time drops to ~7–8 minutes.
+- **Block-by-block explanation:**
+  - *`kaggle/fleet/part1/` (`capstone-fl-part1.ipynb`, `kernel-metadata.json`):* Shard 1. Runs Steps 1 & 2 (Comparability Controls & Leave-One-Out Ablations, 192 configurations total) using 12 worker processes on Dual Tesla T4s. Packages outputs to `phase_e4_2a_part1_results.zip`.
+  - *`kaggle/fleet/part2/` (`capstone-fl-part2.ipynb`, `kernel-metadata.json`):* Shard 2. Runs Steps 3, 5, 6, & 8 (Classical Baselines, Continuous Signal Distributions, Oracle Latency Cutoff, and 60-Round Convergence, 182 configurations total) using 12 worker processes on Dual Tesla T4s. Packages outputs to `phase_e4_2a_part2_results.zip`.
+  - *`kaggle/fleet/part3/` (`capstone-fl-part3.ipynb`, `kernel-metadata.json`):* Shard 3. Runs Step 4 (Operating-Point ROC Threshold Sweeps, 288 configurations total) using 12 worker processes on Dual Tesla T4s. Packages outputs to `phase_e4_2a_part3_results.zip`.
+  - *`kaggle/fleet/dispatch_fleet.sh`:* Shell script that uses `kaggle kernels push` to dispatch all 3 shards to Kaggle concurrently with one command.
+  - *`kaggle/fleet/pull_and_merge_fleet.py`:* Orchestrator script that downloads outputs from all 3 kernels via `kaggle kernels output`, unzips and merges their logs using `merge_sharded_results.py`, and regenerates `RESULTS.md`.
