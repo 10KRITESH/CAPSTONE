@@ -123,6 +123,34 @@ class TestDeterminism(unittest.TestCase):
                 f"Model parameter {key} diverged between identical runs: max diff = {diff}",
             )
 
+    def test_vram_resident_loop_determinism(self):
+        """Verifies that the new GPU-resident tensor training loop is bit-for-bit identical across runs."""
+        from src.experiments.run_phase_e4_verification import run_single_simulation
+
+        feature_cols = self.server_val_ds.feature_cols
+        with open("configs/label_mapping.yaml") as f:
+            lm_cfg = yaml.safe_load(f)
+        class_names = [lm_cfg["idx_to_class"][i] for i in range(len(lm_cfg["idx_to_class"]))]
+
+        common_args = {
+            "mode": "clean_fedavg",
+            "partition_seed": 11,
+            "train_seed": 42,
+            "num_rounds": 2,
+            "partition_dir_str": "data/partitions/dev/seed_11",
+            "test_path_str": str(self.processed_dir / "test.parquet"),
+            "server_val_path_str": str(self.processed_dir / "server_val.parquet"),
+            "feature_cols": feature_cols,
+            "class_names": class_names,
+            "batch_size": 1024,
+        }
+
+        res1 = run_single_simulation(**common_args)
+        res2 = run_single_simulation(**common_args)
+
+        self.assertAlmostEqual(res1["macro_f1"], res2["macro_f1"], places=5)
+        self.assertAlmostEqual(res1["recon_f1"], res2["recon_f1"], places=5)
+
 
 if __name__ == "__main__":
     unittest.main()
