@@ -62,49 +62,75 @@ def evaluate(
         }
     """
     model.eval()
-    all_preds: list[np.ndarray] = []
-    all_targets: list[np.ndarray] = []
+    if hasattr(loader, "dataset") and hasattr(loader.dataset, "tensors"):
+        X_all, y_all = loader.dataset.tensors
+        logits = model(X_all.to(device))
+        y_pred = logits.argmax(dim=1)
+        y_true = y_all.to(device)
+    else:
+        all_preds = []
+        all_targets = []
+        for X, y in loader:
+            X, y = X.to(device), y.to(device)
+            logits = model(X)
+            all_preds.append(logits.argmax(dim=1))
+            all_targets.append(y)
+        y_pred = torch.cat(all_preds)
+        y_true = torch.cat(all_targets)
 
-    for X, y in loader:
-        X, y = X.to(device), y.to(device)
-        logits = model(X)
-        preds = logits.argmax(dim=1)
-        all_preds.append(preds.cpu().numpy())
-        all_targets.append(y.cpu().numpy())
-
-    y_pred = np.concatenate(all_preds)
-    y_true = np.concatenate(all_targets)
-
-    num_classes = int(y_true.max()) + 1
+    num_classes = len(class_names) if class_names else int(y_true.max().item()) + 1
     labels = list(range(num_classes))
     names = class_names if class_names else [str(i) for i in labels]
 
-    acc = float(accuracy_score(y_true, y_pred))
-    macro_f1 = float(f1_score(y_true, y_pred, average="macro", labels=labels, zero_division=0))
-    macro_prec = float(precision_score(y_true, y_pred, average="macro", labels=labels, zero_division=0))
-    macro_rec = float(recall_score(y_true, y_pred, average="macro", labels=labels, zero_division=0))
+    conf = torch.bincount(y_true * num_classes + y_pred, minlength=num_classes * num_classes).view(num_classes, num_classes).float()
+    diag = torch.diag(conf)
+    col_sum = conf.sum(dim=0)  # TP + FP
+    row_sum = conf.sum(dim=1)  # TP + FN (support)
+    tot = conf.sum()
 
-    # Per-class breakdown
-    per_class_prec = precision_score(y_true, y_pred, average=None, labels=labels, zero_division=0)
-    per_class_rec = recall_score(y_true, y_pred, average=None, labels=labels, zero_division=0)
-    per_class_f1 = f1_score(y_true, y_pred, average=None, labels=labels, zero_division=0)
-    per_class_support = np.bincount(y_true, minlength=num_classes)
+    prec = torch.where(col_sum > 0, diag / col_sum, torch.zeros_like(diag))
+    rec = torch.where(row_sum > 0, diag / row_sum, torch.zeros_like(diag))
+    denom = prec + rec
+    f1 = torch.where(denom > 0, 2.0 * prec * rec / denom, torch.zeros_like(diag))
+
+    acc = float((diag.sum() / tot).item()) if tot > 0 else 0.0
+    macro_f1 = float(f1.mean().item())
+    macro_prec = float(prec.mean().item())
+    macro_rec = float(rec.mean().item())
+    bal_acc = macro_rec
 
     per_class = {
         names[i]: {
-            "precision": float(per_class_prec[i]),
-            "recall": float(per_class_rec[i]),
-            "f1": float(per_class_f1[i]),
-            "support": int(per_class_support[i]),
+            "precision": float(prec[i].item()),
+            "recall": float(rec[i].item()),
+            "f1": float(f1[i].item()),
+            "support": int(row_sum[i].item()),
         }
-        for i in labels
+        for i in range(num_classes)
     }
 
-    cm = confusion_matrix(y_true, y_pred, labels=labels).tolist()
-    report = classification_report(y_true, y_pred, target_names=names, zero_division=0)
+    cm = conf.long().cpu().tolist()
 
-    bal_acc = float(balanced_accuracy_score(y_true, y_pred))
-    asr = compute_attack_success_rate(y_true, y_pred, asr_pair[0], asr_pair[1]) if asr_pair is not None else None
+    if asr_pair is not None:
+        src, tgt = asr_pair
+        src_tot = row_sum[src].item()
+        asr = float((conf[src, tgt] / src_tot).item()) if src_tot > 0 else 0.0
+    else:
+        asr = None
+
+    # Text report matching classification_report format
+    header = f"{'':>15}  {'precision':>9}  {'recall':>9}  {'f1-score':>9}  {'support':>9}\n\n"
+    rows = [
+        f"{names[i]:>15}  {prec[i].item():9.2f}  {rec[i].item():9.2f}  {f1[i].item():9.2f}  {int(row_sum[i].item()):9d}"
+        for i in range(num_classes)
+    ]
+    acc_row = f"\n{'accuracy':>15}  {'':>9}  {'':>9}  {acc:9.2f}  {int(tot.item()):9d}\n"
+    macro_row = f"{'macro avg':>15}  {macro_prec:9.2f}  {macro_rec:9.2f}  {macro_f1:9.2f}  {int(tot.item()):9d}\n"
+    w_prec = float((prec * row_sum).sum() / tot) if tot > 0 else 0.0
+    w_rec = float((rec * row_sum).sum() / tot) if tot > 0 else 0.0
+    w_f1 = float((f1 * row_sum).sum() / tot) if tot > 0 else 0.0
+    weighted_row = f"{'weighted avg':>15}  {w_prec:9.2f}  {w_rec:9.2f}  {w_f1:9.2f}  {int(tot.item()):9d}\n"
+    report = header + "\n".join(rows) + acc_row + macro_row + weighted_row
 
     return {
         "accuracy": acc,
