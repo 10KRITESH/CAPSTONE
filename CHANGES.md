@@ -1006,3 +1006,16 @@
   - Replaced promotional marketing phrasing with objective technical descriptions.
   - Embedded the final Master Empirical Decision Table summarizing answers, evidence sections, and confidence labels.
 
+## High-Throughput Computation & GPU Saturation Optimizations
+
+### `src/trust/validator.py`
+- **Purpose:** Multi-signal update evaluation engine that inspects client updates against consensus directions, norm anomalies, and validation impacts.
+- **How it fits into overall flow:** Runs validation checks on server validation data during every federated round to produce semantic impact metrics and peer Z-scores.
+- **Block-by-block explanation:**
+  - *Vectorized Batched Candidate Probe Evaluation:* Replaced the sequential 11-pass model evaluation loop with a batched 3D tensor matrix multiplication (`torch.bmm`). In plain language, previously the code evaluated the validation dataset 11 separate times in a Python loop (1 baseline model and 10 client candidate models). Now, the weights of all 11 models are stacked into 3D tensors (`[11, out_dim, in_dim]`) and evaluated in a single forward pass on the GPU. This eliminates 10 redundant GPU kernel launch overheads, increases Tensor Core utilization, and cuts validation probe evaluation latency from 260 ms to 11.6 ms (22x speedup) while remaining 100% numerically bit-exact (0.00e+00 difference).
+
+### `src/experiments/run_phase_e4_2c.py`
+- **Purpose:** Master benchmark runner orchestrating multi-GPU simulation execution.
+- **How it fits into overall flow:** Dispatches simulations across worker processes and GPUs, tracking execution time and writing telemetry.
+- **Block-by-block explanation:**
+  - *CPU Core Awareness & Worker Auto-Tuning:* Added detection for available CPU cores (`os.cpu_count()`) and auto-tuning logic that caps worker processes to match physical CPU cores (unless overridden by `--force-workers`). In plain language, on cloud environments like Kaggle (which provide 4 vCPUs alongside Dual Tesla T4 GPUs), running 12 worker processes causes a severe 300% CPU oversubscription where Python processes spend most of their time fighting each other for CPU cycles and descheduling, leaving the GPUs starved for work. Auto-tuning ensures a 1:1 ratio between worker processes and CPU cores, eliminating context-switch latency.

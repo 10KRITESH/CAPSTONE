@@ -24,6 +24,7 @@ import concurrent.futures
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 import time
@@ -1076,6 +1077,7 @@ def main():
     parser.add_argument("--shard", type=str, default="all", choices=["all", "part1", "part2", "part3"], help="Fleet shard to execute")
     parser.add_argument("--stage", type=str, default="all", choices=["all", "step_b", "step_c", "step_d"], help="Stage to execute")
     parser.add_argument("--workers", type=int, default=4, help="Parallel worker processes")
+    parser.add_argument("--force-workers", action="store_true", help="Force exact worker count regardless of CPU core count")
     parser.add_argument("--output-dir", type=str, default="results/runs/phase_e4_2c", help="Output directory")
     args = parser.parse_args()
 
@@ -1150,9 +1152,20 @@ def main():
     total_count = len(all_configs)
 
     num_gpus = torch.cuda.device_count()
-    logger.info(f"Launching pool with {args.workers} workers across {num_gpus} available GPUs...")
+    cpu_cores = os.cpu_count() or 4
+    if not args.force_workers and args.workers > cpu_cores:
+        logger.warning(
+            f"Requested {args.workers} workers on a machine with {cpu_cores} CPUs. "
+            f"Auto-tuning workers to {cpu_cores} to prevent CPU context-switch starvation and GPU idling. "
+            f"(Use --force-workers to override)."
+        )
+        effective_workers = cpu_cores
+    else:
+        effective_workers = args.workers
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+    logger.info(f"Launching pool with {effective_workers} workers across {num_gpus} available GPUs...")
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=effective_workers) as executor:
         futures = {}
         for idx, cfg in enumerate(pending_configs):
             p_dir_str = f"data/partitions/dev/seed_{cfg['partition_seed']}"

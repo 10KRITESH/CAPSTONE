@@ -179,9 +179,90 @@ class UpdateValidator:
             scaled_norms = raw_norms
         t_mad_ms = (time.time() - t_mad_start) * 1000.0
 
-        # 4. Evaluate baseline global model performance on server val set
+        # 4. Evaluate baseline global model and candidate models on server val set
         t_probe_start = time.time()
-        base_macro_f1, base_class_f1 = self._evaluate_fast(global_model)
+        probe_scale = 1.0 / max(1, len(client_updates))
+        has_cached_tensors = hasattr(self.server_val_loader, "dataset") and hasattr(self.server_val_loader.dataset, "tensors")
+
+        if has_cached_tensors and self.device.type == "cuda" and hasattr(global_model, "body") and hasattr(global_model, "head"):
+            if not hasattr(self, "_cached_val_tensors") or self._cached_val_tensors is None:
+                self._cached_val_tensors = (
+                    self.server_val_loader.dataset.tensors[0].to(self.device),
+                    self.server_val_loader.dataset.tensors[1].to(self.device),
+                )
+            X_val, y_val = self._cached_val_tensors
+            K = 1 + len(client_updates)
+
+            p_names = [k for k, _ in global_model.named_parameters()]
+            cand_weights = {}
+            for k in p_names:
+                p_glob = global_model.state_dict()[k]
+                w_stack = [p_glob]
+                for u in client_updates:
+                    u_k = u[k].to(self.device) if u[k].device != self.device else u[k]
+                    w_stack.append(p_glob + u_k * probe_scale)
+                cand_weights[k] = torch.stack(w_stack)
+
+            W1 = cand_weights["body.0.weight"]
+            b1 = cand_weights["body.0.bias"].unsqueeze(-1)
+            ln1_w = cand_weights["body.1.weight"].unsqueeze(-1)
+            ln1_b = cand_weights["body.1.bias"].unsqueeze(-1)
+
+            W2 = cand_weights["body.4.weight"]
+            b2 = cand_weights["body.4.bias"].unsqueeze(-1)
+            ln2_w = cand_weights["body.5.weight"].unsqueeze(-1)
+            ln2_b = cand_weights["body.5.bias"].unsqueeze(-1)
+
+            W3 = cand_weights["head.weight"]
+            b3 = cand_weights["head.bias"].unsqueeze(-1)
+
+            X_val_t = X_val.t().unsqueeze(0).expand(K, -1, -1)
+
+            with torch.no_grad():
+                h1 = torch.bmm(W1, X_val_t) + b1
+                h1 = (h1 - h1.mean(dim=1, keepdim=True)) / torch.sqrt(h1.var(dim=1, keepdim=True, unbiased=False) + 1e-5) * ln1_w + ln1_b
+                h1 = torch.relu(h1)
+
+                h2 = torch.bmm(W2, h1) + b2
+                h2 = (h2 - h2.mean(dim=1, keepdim=True)) / torch.sqrt(h2.var(dim=1, keepdim=True, unbiased=False) + 1e-5) * ln2_w + ln2_b
+                h2 = torch.relu(h2)
+
+                logits = torch.bmm(W3, h2) + b3
+                preds_all = logits.argmax(dim=1)
+
+                num_c = len(self.class_names)
+                idx_all = num_c * y_val.unsqueeze(0) + preds_all
+
+                all_macro_f1 = []
+                all_per_class_f1 = []
+                for i in range(K):
+                    cm = torch.bincount(idx_all[i], minlength=num_c * num_c).view(num_c, num_c).float()
+                    tp = cm.diag()
+                    prec = tp / (tp + cm.sum(dim=0) - tp + 1e-10)
+                    rec = tp / (cm.sum(dim=1) + 1e-10)
+                    f1 = 2 * prec * rec / (prec + rec + 1e-10)
+                    all_macro_f1.append(f1.mean().item())
+                    all_per_class_f1.append({self.class_names[c]: f1[c].item() for c in range(num_c)})
+
+            base_macro_f1 = all_macro_f1[0]
+            base_class_f1 = all_per_class_f1[0]
+            cand_macro_list = all_macro_f1[1:]
+            cand_class_list = all_per_class_f1[1:]
+        else:
+            base_macro_f1, base_class_f1 = self._evaluate_fast(global_model)
+            cand_macro_list = []
+            cand_class_list = []
+            if not hasattr(self, "_cand_model") or self._cand_model is None:
+                self._cand_model = IDS_MLP(**global_model.config).to(self.device)
+                self._cand_model.eval()
+            for update in client_updates:
+                with torch.no_grad():
+                    for p_cand, (k, p_glob) in zip(self._cand_model.parameters(), global_model.named_parameters()):
+                        u_k = update[k].to(self.device) if update[k].device != self.device else update[k]
+                        p_cand.copy_(p_glob + u_k * probe_scale)
+                cand_m_f1, cand_c_f1 = self._evaluate_fast(self._cand_model)
+                cand_macro_list.append(cand_m_f1)
+                cand_class_list.append(cand_c_f1)
 
         # 5. Evaluate semantic validation impacts & head gradient energy per client
         candidate_evals = []
@@ -204,16 +285,8 @@ class UpdateValidator:
             else:
                 head_energy = np.ones(len(self.class_names)) / max(1, len(self.class_names))
 
-            probe_scale = 1.0 / max(1, len(client_updates))
-            if not hasattr(self, "_cand_model") or self._cand_model is None:
-                self._cand_model = IDS_MLP(**global_model.config).to(self.device)
-                self._cand_model.eval()
-            with torch.no_grad():
-                for p_cand, (k, p_glob) in zip(self._cand_model.parameters(), global_model.named_parameters()):
-                    u_k = update[k].to(self.device) if update[k].device != self.device else update[k]
-                    p_cand.copy_(p_glob + u_k * probe_scale)
-
-            cand_macro_f1, cand_per_class_f1 = self._evaluate_fast(self._cand_model)
+            cand_macro_f1 = cand_macro_list[idx]
+            cand_per_class_f1 = cand_class_list[idx]
             global_impact = cand_macro_f1 - base_macro_f1
 
             per_class_impact = {
