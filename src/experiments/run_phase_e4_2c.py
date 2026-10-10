@@ -262,8 +262,8 @@ def run_simulation(
     # Trust Engine setup
     has_validator = defense_type in (
         "legacy_d0", "fixed", "fixed_e4", "fixed_e4_1", "d2_z3", "detector_log_only",
-        "fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed",
-        "calibrated_hybrid_median", "calibrated_hybrid_trimmed"
+        "fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed", "hybrid_krum",
+        "calibrated_hybrid_median", "calibrated_hybrid_trimmed", "calibrated_hybrid_krum"
     ) or defense_type.startswith("ablation_") or defense_type.startswith("sweep_")
 
     validator = None
@@ -274,9 +274,9 @@ def run_simulation(
     if has_validator:
         is_legacy = (defense_type == "legacy_d0" or custom_params.get("legacy_d0", False))
         is_e4_init = (defense_type == "fixed_e4")
-        is_c5 = defense_type in ("fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed", "detector_log_only")
+        is_c5 = defense_type in ("fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed", "hybrid_krum", "detector_log_only")
         is_c5b = (defense_type == "c5b_no_norm_z" or custom_params.get("no_norm_z", False))
-        is_calibrated = (defense_type in ("calibrated_hybrid_median", "calibrated_hybrid_trimmed") or custom_params.get("calibrated", False))
+        is_calibrated = (defense_type in ("calibrated_hybrid_median", "calibrated_hybrid_trimmed", "calibrated_hybrid_krum") or custom_params.get("calibrated", False))
 
         det_variant = custom_params.get("detector_variant", "D0" if is_legacy else ("D3" if is_calibrated else "D2"))
         d2_z = custom_params.get("d2_z_thresh", 3.0)
@@ -668,8 +668,16 @@ def run_simulation(
             new_state, _ = aggregate_trimmed_mean(active_updates, global_model.state_dict(), beta=b)
             global_model.load_state_dict(new_state)
 
-        elif defense_type == "krum":
-            new_state, _ = aggregate_krum(client_updates, global_model.state_dict(), f=num_malicious, m=1)
+        elif defense_type in ("krum", "hybrid_krum", "calibrated_hybrid_krum"):
+            if defense_type in ("hybrid_krum", "calibrated_hybrid_krum"):
+                active_cids = [i for i in range(10) if state_factors[i] > 0.0]
+                if not active_cids:
+                    active_cids = list(range(10))
+                active_updates = [client_updates[i] for i in active_cids]
+                f_krum = max(1, int(len(active_updates) * 0.20))
+                new_state, _ = aggregate_krum(active_updates, global_model.state_dict(), f=f_krum, m=1)
+            else:
+                new_state, _ = aggregate_krum(client_updates, global_model.state_dict(), f=num_malicious, m=1)
             global_model.load_state_dict(new_state)
 
         elif defense_type == "oracle_d1":
@@ -857,6 +865,8 @@ def build_step_b_configs() -> list[dict[str, Any]]:
         ("legacy_d0", "legacy_d0", {"legacy_d0": True}),
         ("d2_z3", "d2_z3", {}),
         ("fixed_e4", "fixed_e4", {"no_round6_reset": True}),
+        ("calibrated_hybrid_median", "calibrated_hybrid_median", {"calibrated": True}),
+        ("calibrated_hybrid_krum", "calibrated_hybrid_krum", {"calibrated": True}),
     ]
 
     for ref_tag, d_type, c_params in references:
@@ -1053,6 +1063,8 @@ def build_step_c_configs() -> list[dict[str, Any]]:
         ("C5_fixed_no_norm_scaling", "fixed_no_norm_scaling", {}),
         ("C7_hybrid_median", "hybrid_median", {}),
         ("legacy_d0", "legacy_d0", {"legacy_d0": True}),
+        ("calibrated_hybrid_median", "calibrated_hybrid_median", {"calibrated": True}),
+        ("calibrated_hybrid_krum", "calibrated_hybrid_krum", {"calibrated": True}),
     ]
 
     for scen_name, scen_params in scenarios:

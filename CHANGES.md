@@ -1096,5 +1096,5 @@
 - **How it fits into overall flow:** Dispatches simulations across workers and combines multi-signal governance with robust rank aggregators.
 - **Block-by-block explanation:**
   - *`hybrid_krum` Aggregation in Coordinator:* Added `hybrid_krum` to `FLCoordinator`. Quarantined clients ($SF = 0.0$) are recorded to the blockchain audit log and excluded, while surviving active clients are aggregated via Multi-Krum ($f = \lfloor 0.20 \cdot |S| \rfloor$). This provides state-machine auditing combined with Multi-Krum's proven resilience under high Byzantine fractions (30%).
-  - *Calibrated Defense Integration in Benchmark Harness:* Wired `calibrated_hybrid_median` and `calibrated_hybrid_trimmed` into `run_phase_e4_2c.py`, dynamically passing calibrated D3 and scaled-norm thresholds to the validator and executing robust median / trimmed mean over surviving unquarantined clients.
+  - *Calibrated Defense Integration in Benchmark Harness:* Wired `calibrated_hybrid_median` and `calibrated_hybrid_krum` into `run_phase_e4_2c.py`, dynamically passing calibrated D3 and scaled-norm thresholds to the validator and executing robust median and Multi-Krum aggregation over surviving unquarantined clients. Added both candidates to Step B reference matrix and Step C 6-scenario stress tests across all 15 calibration configurations (931 total fleet simulation runs).
 
