@@ -159,6 +159,19 @@ class UpdateValidator:
         ref_flat = compute_geometric_median_reference(flat_updates)
         t_cos_ms = (time.time() - t_cos_start) * 1000.0
 
+        # Vectorized L2 norms and cosine similarities
+        stacked_flat = torch.stack(flat_updates)
+        raw_norms = torch.norm(stacked_flat, dim=1).cpu().tolist()
+
+        r_norm = torch.norm(ref_flat)
+        if r_norm > 1e-8:
+            ref_n = ref_flat / r_norm
+            norms_clamped = torch.clamp(torch.norm(stacked_flat, dim=1, keepdim=True), min=1e-8)
+            stacked_norm = stacked_flat / norms_clamped
+            cos_sims = torch.mv(stacked_norm, ref_n).clamp(-1.0, 1.0).cpu().tolist()
+        else:
+            cos_sims = [1.0 for _ in client_ids]
+
         # 2. Run Cross-Client Sub-Cluster Collusion Detection
         t_col_start = time.time()
         collusion_penalties = self.collusion_detector.analyze_updates(
@@ -168,7 +181,6 @@ class UpdateValidator:
 
         # 3. Calculate L2 norms and sample-scaled norms (Flaw 2: breaks dataset-size confound)
         t_mad_start = time.time()
-        raw_norms = [float(u.norm().item()) for u in flat_updates]
         if sample_counts is not None and len(sample_counts) == len(client_updates) and sum(sample_counts) > 0:
             mean_n = float(np.mean(sample_counts))
             scaled_norms = [
@@ -267,7 +279,7 @@ class UpdateValidator:
         # 5. Evaluate semantic validation impacts & head gradient energy per client
         candidate_evals = []
         for idx, (update, client_id, flat_u) in enumerate(zip(client_updates, client_ids, flat_updates)):
-            cos_sim = compute_cosine_similarity(flat_u, ref_flat)
+            cos_sim = cos_sims[idx]
             # Sample-scaled norm Z-score measures genuine gradient anomalies rather than sample counts
             _, z_score = compute_robust_norm_score(scaled_norms, idx)
 

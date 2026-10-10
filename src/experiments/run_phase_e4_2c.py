@@ -488,13 +488,13 @@ def run_simulation(
             honest_cids = [i for i in range(10) if i not in malicious_set]
             honest_norms = []
             for h in honest_cids:
-                tot_sq = sum(v.pow(2).sum().item() for v in client_updates[h].values() if torch.is_floating_point(v))
-                honest_norms.append(tot_sq ** 0.5)
+                tot_sq = sum(v.pow(2).sum() for v in client_updates[h].values() if torch.is_floating_point(v))
+                honest_norms.append(float(tot_sq.sqrt().item()))
             target_norm = float(np.median(honest_norms)) if honest_norms else 1.5
 
             for aid in malicious_set:
-                tot_sq = sum(v.pow(2).sum().item() for v in client_updates[aid].values() if torch.is_floating_point(v))
-                atk_norm = tot_sq ** 0.5
+                tot_sq = sum(v.pow(2).sum() for v in client_updates[aid].values() if torch.is_floating_point(v))
+                atk_norm = float(tot_sq.sqrt().item())
                 if atk_norm > 1e-8:
                     scale = target_norm / atk_norm
                     for k in client_updates[aid]:
