@@ -545,6 +545,22 @@ def run_simulation(
                 sample_counts=sample_counts_arg,
             )
 
+            # Vectorized head energy calculation across all clients
+            head_energies = [0.0] * 10
+            hw_list = [client_updates[i].get("head.weight") for i in range(10)]
+            if all(hw is not None and hw.ndim == 2 for hw in hw_list) and any(hw.is_cuda for hw in hw_list if hw is not None):
+                st_hw = torch.stack(hw_list).float()
+                r_sq = torch.sum(st_hw ** 2, dim=2)
+                r_n = torch.sqrt(r_sq + 1e-12)
+                t_n = torch.norm(r_n, dim=1, keepdim=True) + 1e-8
+                head_energies = (r_n[:, 4] / t_n[:, 0]).cpu().tolist()
+            else:
+                for i in range(10):
+                    hw = hw_list[i]
+                    if hw is not None and hw.ndim == 2:
+                        r_sq = torch.sum(hw.float() ** 2, dim=1)
+                        head_energies[i] = float(torch.sqrt(r_sq[4] + 1e-12) / (torch.norm(torch.sqrt(r_sq + 1e-12)) + 1e-8))
+
             for cid, vr in enumerate(val_results):
                 if is_c5b:
                     vr.norm_z_score = 0.0
@@ -561,12 +577,7 @@ def run_simulation(
                     if cid in malicious_set and first_caught_round[cid] is None:
                         first_caught_round[cid] = r
 
-                # Compute per-class head energy
-                hw = client_updates[cid].get("head.weight")
-                recon_head_energy = 0.0
-                if hw is not None and hw.ndim == 2:
-                    row_sq = torch.sum(hw.float() ** 2, dim=1)
-                    recon_head_energy = float(torch.sqrt(row_sq[4] + 1e-12) / (torch.norm(torch.sqrt(row_sq + 1e-12)) + 1e-8))
+                recon_head_energy = head_energies[cid]
 
                 telemetry_records.append({
                     "round": r,
@@ -769,8 +780,8 @@ def run_simulation(
                     "state_factors": [state_factors.get(cid, 1.0) for cid in range(10)],
                 })
 
-        track_all = config.get("track_every_round", False) or config.get("step") in ("step4", "step8", "stress_test")
-        if track_all or r == num_rounds:
+        is_eval_round = (r == num_rounds) or (r % 10 == 0) or config.get("track_every_round", False)
+        if is_eval_round:
             test_eval = fast_evaluate(global_model, X_test, y_test, device)
             round_convergence.append({
                 "round": r,
@@ -885,7 +896,7 @@ def build_step_b_configs() -> list[dict[str, Any]]:
                     "val_env": "fast_val",
                     "defense_type": d_type,
                     "custom_params": c_params,
-                    "track_every_round": True,
+                    "track_every_round": False,
                 })
     return configs
 
@@ -910,7 +921,7 @@ def build_step_d1_configs() -> list[dict[str, Any]]:
             "val_env": "fast_val",
             "defense_type": "c5b_no_norm_z",
             "custom_params": {"no_norm_scaling": True, "no_norm_z": True},
-            "track_every_round": True,
+            "track_every_round": False,
         })
 
     # 2. C5b Attacked Standard (gamma=2.0) (15 runs)
@@ -929,7 +940,7 @@ def build_step_d1_configs() -> list[dict[str, Any]]:
             "val_env": "fast_val",
             "defense_type": "c5b_no_norm_z",
             "custom_params": {"no_norm_scaling": True, "no_norm_z": True},
-            "track_every_round": True,
+            "track_every_round": False,
         })
 
     # 3. C5b Attacked Gamma=1.0 (15 runs)
@@ -948,7 +959,7 @@ def build_step_d1_configs() -> list[dict[str, Any]]:
             "val_env": "fast_val",
             "defense_type": "c5b_no_norm_z",
             "custom_params": {"no_norm_scaling": True, "no_norm_z": True},
-            "track_every_round": True,
+            "track_every_round": False,
         })
 
     return configs
@@ -1087,7 +1098,7 @@ def build_step_c_configs() -> list[dict[str, Any]]:
                     "val_env": "fast_val",
                     "defense_type": d_type,
                     "custom_params": c_params,
-                    "track_every_round": True,
+                    "track_every_round": False,
                 })
     return configs
 
@@ -1118,22 +1129,27 @@ def main():
         lm = yaml.safe_load(f)
     class_names = [lm["idx_to_class"][i] for i in range(len(lm["idx_to_class"]))]
 
+    # Collect full benchmark suite
+    full_suite = []
+    full_suite.extend(build_step_b_configs())
+    full_suite.extend(build_step_d1_configs())
+    full_suite.extend(build_step_d2_configs())
+    full_suite.extend(build_step_d3_configs())
+    full_stress = build_step_c_configs()
+    full_suite.extend(full_stress)
+
     # Collect configurations based on shard or stage
     all_configs = []
-    if args.shard == "part1":
-        # Shard 1: References (Step B) + Mechanism Checks (Step D) = 151 runs
-        all_configs.extend(build_step_b_configs())
-        all_configs.extend(build_step_d1_configs())
-        all_configs.extend(build_step_d2_configs())
-        all_configs.extend(build_step_d3_configs())
-    elif args.shard == "part2":
-        # Shard 2: Stress tests scenarios 1, 2, 3 (gamma1, norm_clip, cosine_mimic) = 270 runs
-        all_stress = build_step_c_configs()
-        all_configs.extend([c for c in all_stress if c.get("scenario") in ("gamma1", "norm_clip", "cosine_mimic")])
+    mid = len(full_suite) // 2
+    if args.shard in ("part1", "shard1"):
+        # Balanced Shard 1 (465 runs): Steps B, D1, D2, D3 + first stress scenarios
+        all_configs = full_suite[:mid]
+    elif args.shard in ("part2", "shard2"):
+        # Balanced Shard 2 (466 runs): Remaining stress scenarios
+        all_configs = full_suite[mid:]
     elif args.shard == "part3":
-        # Shard 3: Stress tests scenarios 4, 5, 6 (head_boost, share_5_15, three_attackers) = 270 runs
-        all_stress = build_step_c_configs()
-        all_configs.extend([c for c in all_stress if c.get("scenario") in ("head_boost", "share_5_15", "three_attackers")])
+        # Backward compatibility if ever requested
+        all_configs = [c for c in full_stress if c.get("scenario") in ("head_boost", "share_5_15", "three_attackers")]
     else:
         # Full suite or stage-filtered
         if args.stage in ("all", "step_b"):
@@ -1143,7 +1159,7 @@ def main():
             all_configs.extend(build_step_d2_configs())
             all_configs.extend(build_step_d3_configs())
         if args.stage in ("all", "step_c"):
-            all_configs.extend(build_step_c_configs())
+            all_configs.extend(full_stress)
 
     # Load existing runs for resumption
     completed_runs = set()
