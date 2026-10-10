@@ -1143,8 +1143,13 @@
 - **How it fits into overall flow:** Adds `--shards 2` CLI argument and auto-detects active remote kernel statuses when attaching with `--skip-initial-push`.
 - **Block-by-block explanation:**
   - *2-Shard Termination & Merging:* Added logic allowing the orchestrator to monitor only Part 1 and Part 2, immediately breaking the polling loop and downloading outputs the moment both finish, completely bypassing the sequential 3rd shard and eliminating the 15-minute idle tail period on Kaggle.
-  - *Auto-Attach & Import Fix:* Added `import shutil` and initialization detection for Part 3 in `--skip-initial-push` mode. In plain language, when re-attaching the orchestrator to an ongoing fleet, the script previously assumed Part 3 had never been pushed and attempted to re-dispatch it. Detecting Part 3's live status prevents redundant dispatches and ensures the orchestrator connects directly to the active kernel.
 
+### Phase E4.2c Full Fleet Execution & Master Empirical Decision Table
 
-
-
+#### `PROJECT_STATE.md` (Update with Full 931-Run Fleet Execution Results)
+- **Purpose:** Tracks the official high-level milestone status, architectural findings, and master empirical decision table for the project.
+- **How it fits into overall flow:** Consulted by team members and researchers as the definitive status summary of completed experimental phases and core conclusions.
+- **Block-by-block explanation:**
+  - *Full Fleet Benchmark Completion:* Updated Phase E4.2c status from partial 691 runs to the complete 931-simulation suite (27,930 federated learning rounds) executed across the Kaggle Cloud GPU fleet.
+  - *Calibrated Hybrid Defenses Empirical Findings:* Documented that `calibrated_hybrid_median` and `calibrated_hybrid_krum` resolve the vulnerability where pure classical robust statistics outperformed the state machine without providing accountability. In plain language, while pure coordinate median achieves good accuracy, it is mathematically blind to who attacked and cannot quarantine dishonest clients. Calibrated hybrid defenses combine coordinate median's resilience against label-flipping noise with the security state machine's ability to quarantine attackers (53.8% quarantine rate, 60.5% probation detection), outperforming pure coordinate median in both RECON F1 (+1.50%) and attack suppression (-0.56% ASR).
+  - *Master Empirical Decision Table:* Expanded the decision table to explicitly answer how calibrated hybrid defenses compare to classical robust statistics across all 15 calibration configurations and 6 stress scenarios.
