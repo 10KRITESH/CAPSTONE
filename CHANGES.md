@@ -1159,3 +1159,12 @@
 - **How it fits into overall flow:** Eliminates report redundancy across the project. The single authoritative benchmark report is now root [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md), while detailed mechanism sections remain archived in [`FINDINGS_ADDENDUM.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md).
 - **Block-by-block explanation:**
   - *Report Hygiene & Single Source of Truth:* Deleted `reports/phase_e4_2c/RESULTS.md` so that root `RESULTS.md` is the only active benchmark results file. This satisfies `test_report_hygiene.py` and ensures all users and automated tools refer to one single file without version confusion.
+
+#### `README.md` (Update Section 2 with Phase E4.2c 931-Simulation Fleet Matrix)
+- **Purpose:** Primary project landing page and documentation displayed publicly on GitHub.
+- **How it fits into overall flow:** Provides visitors, evaluators, and researchers with the verified, up-to-date empirical benchmark findings directly from the repository's root page.
+- **Block-by-block explanation:**
+  - *Phase E4.2c Empirical Matrix Ingestion:* Replaced outdated/legacy shootout numbers with the full empirical performance matrix from the 931-simulation benchmark executed across Kaggle Cloud Tesla T4 multi-GPU fleet workers.
+  - *Calibrated Hybrid Defense Highlighting:* Displayed Macro-F1, RECON-F1, Attack Success Rate (ASR), and attacker/honest quarantine detection statistics across all evaluated defenses (`calibrated_hybrid_median`, `calibrated_hybrid_krum`, `coordinate_median`, `krum`, `fixed_no_norm_scaling`, `legacy_d0`, `c5b_no_norm_z`, and `fedavg`).
+  - *Empirical Discoveries:* Added plain-language summaries explaining how hybrid defenses bridge the gap between classical robust statistics and state machine auditability, resilience under high Byzantine fractions, and why decoupled fallback is mandatory against evasive attacks.
+
