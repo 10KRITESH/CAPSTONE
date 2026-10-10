@@ -84,6 +84,8 @@ def _run_one(
         init_weights_path=baseline_ckpt if baseline_ckpt and baseline_ckpt.exists() else None,
         disable_head_body_split=disable_head_body_split,
         disable_state_factor=disable_state_factor,
+        db_path=Path("results/ablation/audit.db"),
+        ledger_path=Path("results/ablation/blockchain_ledger.json"),
     )
 
     t_start = time.time()
