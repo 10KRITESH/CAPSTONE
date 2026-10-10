@@ -8,7 +8,7 @@ Maintains an audit layer logging all security state transitions and aggregation 
 ## 2. Current Status & Execution
 - **Phase:** Phase E4.2c COMPLETED (931 simulations / 27,930 FL rounds executed across Kaggle Cloud GPU fleet workers).
 - **Run Directory:** `results/runs/phase_e4_2c/` (`runs.jsonl`, `client_telemetry.csv`, `RESULTS.md`).
-- **Reports:** Root [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md), [`reports/phase_e4_2c/RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/reports/phase_e4_2c/RESULTS.md), and [`FINDINGS_ADDENDUM.md` Part 10](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#part-10-phase-e42c-valid-validator-references-stress-tests-and-mechanism-checks).
+- **Reports:** Single canonical root [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md) and [`FINDINGS_ADDENDUM.md` Part 10](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#part-10-phase-e42c-valid-validator-references-stress-tests-and-mechanism-checks).
 - **Candidate Configs Frozen:** `configs/candidates/C0_fedavg.yaml` through `C9_detector_log_only.yaml` verified unchanged against frozen hashes.
 - **Split Discipline:** Calibration partitions `{11, 12, 13}` used; held-out evaluation partitions `{101..105}` remain strictly untouched.
 
