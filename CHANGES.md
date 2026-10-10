@@ -972,3 +972,37 @@
 
 
 
+
+## Phase E4.2c: Master Benchmark Completion, References, Stress Tests & Mechanism Checks
+
+### `src/experiments/analyze_phase_e4_2c.py`
+- **Purpose:** Standalone empirical analysis script and Markdown report generator for Phase E4.2c.
+- **How it fits into overall flow:** Reads the unified `runs.jsonl` and `client_telemetry.csv` artifacts from `results/runs/phase_e4_2c/`, verifies candidate immutability against sealed SHA-256 hashes, computes statistical metrics, and generates `reports/phase_e4_2c/RESULTS.md` and Part 10 of `FINDINGS_ADDENDUM.md`.
+- **Block-by-block explanation:**
+  - *Candidate Hash Check:* Confirms that all 10 frozen candidate configuration YAMLs match their sealed SHA-256 hashes from commit `98a96d1`.
+  - *Step Filter:* Classifies each run into its respective benchmark step (`Step B`, `Step C`, `Step D1`, `Step D2`, `Step D3`) using robust substring matching across scenario and candidate tags.
+  - *Section 1 Generator (Step B References):* Compares `legacy_d0`, `d2_z3`, and `fixed_e4` across clean and attacked conditions, evaluating macro-F1, RECON-F1, ASR, honest quarantine ($k/n$ and data %), and attacker recall.
+  - *Section 2 Generator (Step C Stress Tests):* Computes the FedAvg Potency Gate (PASS/FAIL) and generates the comprehensive 6-scenario resilience matrix for C0, C1, C2, C5, C7, and `legacy_d0`.
+  - *Section 3 Generator (Step D Mechanism Checks):* Generates the `norm_z` distribution table, threshold flag rates, C5b ablation comparison, D2 collapse verification, and D3 2x2 factorial isolation table.
+  - *Section 4 Generator (Step E Decision Table):* Formulates direct, factual answers to all five core research questions with confidence ratings and supporting evidence links.
+
+### `src/experiments/generate_report.py`
+- **Purpose:** Central report generator that updates the root `RESULTS.md` and generates per-run reports.
+- **How it fits into overall flow:** Summarizes overall simulation results, diagnostic telemetry correlations, and Section 4 paired baseline deltas.
+- **Block-by-block explanation:**
+  - *Section 4 Paired Difference Grouping:* Grouped attacked and clean runs by `(partition_seed, train_seed)` prior to taking array differences, resolving a shape mismatch where candidates had multiple stress test runs for the same seed pair.
+
+### `src/experiments/run_phase_e4_2c.py`
+- **Purpose:** Master simulation harness for Phase E4.2c runs.
+- **How it fits into overall flow:** Executes federated training rounds, client updates, validation checks, and state transitions.
+- **Block-by-block explanation:**
+  - *Step D2 Weight Logging Fix:* Corrected the logging block in `run_phase_e4_2c.py` when `log_aggregation_weights=True` to compute both normalized body weights and RECON head weights directly from client updates, eliminating an `AttributeError` from referencing the execution time float as a dictionary.
+
+### `PROJECT_STATE.md`
+- **Purpose:** Living high-level status document tracking project progress, active phases, and architectural decisions.
+- **How it fits into overall flow:** Kept strictly under 80 lines, summarizing verified empirical findings and directing the team on next steps.
+- **Block-by-block explanation:**
+  - Updated current phase status to Phase E4.2c COMPLETED (691 runs / 20,730 FL rounds on Kaggle Cloud GPUs).
+  - Replaced promotional marketing phrasing with objective technical descriptions.
+  - Embedded the final Master Empirical Decision Table summarizing answers, evidence sections, and confidence labels.
+

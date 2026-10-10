@@ -3,34 +3,33 @@
 ## 1. Project Overview
 A Byzantine-robust federated-learning intrusion detection system (FL-IDS) evaluated on CICIoT2023 (8 classes, 10 clients, Dirichlet alpha=0.5).
 Combines per-class reputation tracking, decoupled body/head aggregation, and a 3-tier security state machine (Trusted/Probation/Quarantined).
-Features a tamper-evident audit layer logging all security state transitions to SQLite and simulated JSON ledger.
+Maintains an audit layer logging all security state transitions and aggregation events to SQLite and a simulated JSON ledger.
 
 ## 2. Current Status & Execution
-- **Phase:** Phase E4.2b COMPLETED (390 simulations / 12,600 FL rounds on local RTX 3050 in 2,065.4s / 34.4 min).
-- **Run Directory:** `results/runs/phase_e4_2b/` (`runs.jsonl`, `telemetry.csv`, `RESULTS.md`).
-- **Reports:** Root [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md), [`reports/phase_e4_2b/RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/reports/phase_e4_2b/RESULTS.md), and [`FINDINGS_ADDENDUM.md` Part 9](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#part-9-phase-e42b-benchmark-reproducibility-and-candidate-architectures-evaluation).
-- **Candidate Configs Frozen:** `configs/candidates/C0_fedavg.yaml` through `C9_detector_log_only.yaml` sealed with SHA-256 hashes at commit `7403dc5`.
+- **Phase:** Phase E4.2c COMPLETED (691 simulations / 20,730 FL rounds executed across Kaggle Cloud GPU workers).
+- **Run Directory:** `results/runs/phase_e4_2c/` (`runs.jsonl`, `client_telemetry.csv`, `RESULTS.md`).
+- **Reports:** Root [`RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/RESULTS.md), [`reports/phase_e4_2c/RESULTS.md`](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/reports/phase_e4_2c/RESULTS.md), and [`FINDINGS_ADDENDUM.md` Part 10](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#part-10-phase-e42c-valid-validator-references-stress-tests-and-mechanism-checks).
+- **Candidate Configs Frozen:** `configs/candidates/C0_fedavg.yaml` through `C9_detector_log_only.yaml` verified unchanged against frozen hashes.
+- **Split Discipline:** Calibration partitions `{11, 12, 13}` used; held-out evaluation partitions `{101..105}` remain strictly untouched.
 
-## 3. Experimental Split Discipline
-- **Calibration Partitions:** `{11, 12, 13}` paired with training seeds `{1, 2, 3, 4, 5}` (15 configs) used for calibration and candidate freezing.
-- **Evaluation Partitions:** Held-out `{101..105}` paired with training seeds `{201, 202}` reserved exclusively for final evaluation.
-- **Discipline:** Evaluation partitions remain strictly untouched (zero leakage).
+## 3. Key Verified Findings (Phase E4.2c)
+- **Reference Comparison (Step B):** Under corrected validator, `legacy_d0` has higher attacked RECON F1 (46.3% vs 45.4%) and recall (90.0% vs 46.7%) than `fixed_e4`, but false-quarantines 26.0% clean honest clients (33.3% data). Fixed design provides false-positive suppression, but lowers detection recall.
+- **Stress Tests (Step C):** Potency gate passes for 5/6 scenarios (FedAvg RECON collapses to 3.8–34.1%; `head_boost` fails as FedAvg sustains 44.2%). Coordinate Median (C1) holds on scenarios 1–5 (~42–45% RECON F1) but degrades to 33.8% under 3 attackers (30%). Multi-Krum (C2) dominates under 3 attackers (44.25% RECON F1). C5 and Legacy D0 break under norm-matched attacks (RECON F1 18–26%).
+- **Mechanism D1 (norm_z):** Norm scaling cleans signal quality (honest std drops 0.64 -> 0.23, zero false alarms), but compresses attacker Z-scores to ~1.99, causing static thresholds ($|z|>2.5$) to miss them.
+- **Mechanism D2 (Quarantine-then-Collapse):** Prior collapse premise refuted. C4 collapsed only under the buggy validator with active dropout; under corrected validator, C4 reaches 42.0% (P11_S1) and 46.8% (P12_S1), matching Oracle exclusion.
+- **Mechanism D3 (Factorial Isolation):** Denominator is 10 clients ($2/10 = 1/5$, $5/10 = 1/2$). Fast GPU validator verified 100% bit-exact to old validator.
 
-## 4. Key Verified Findings (Phase E4.2b)
-- **Factorial Divergence Resolved:** Proved 21.7% -> 95.0% honest quarantine jump was driven entirely by missing `model.eval()` in fast validator (dropout noise). Training loop has 0.0% impact ([E9.4](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#e94-step-03-factorial-cross-terms--full-reproducibility-comparison)).
-- **Norm Scaling Dissection:** Removing norm power scaling ($p=0.0$ vs $0.585$) boosts attacker quarantine from 43.3% to 73.3% (+30.0%) and RECON F1 from 19.84% to 44.70% (+24.86%), eliminating representation collapse ([E9.7](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#e97-step-3-dissection-why-does-removing-norm-scaling-help)).
-- **Candidate Architectures:** Coordinate Median (C1) achieves 43.03% RECON F1; Fixed No-Norm-Scaling (C5) matches/exceeds it at 44.70% RECON F1 with 73.3% attacker detection; HYBRID-MEDIAN (C7) achieves top overall performance at 44.93% RECON F1, 14.44% ASR, and 76.7% attacker quarantine ([E9.6](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#e96-step-1--2-candidate-architectures-comprehensive-benchmark-c0--c9)).
-- **60-Round Convergence:** Extended 60-round attacks confirm neither Median (C1), Fixed (C5), nor Hybrid-Median (C7) collapses (all sustain ~44% RECON F1); undefended FedAvg collapses at Round 6 ([E9.8](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#e98-step-4-operational-view--60-round-convergence-collapse-verification)).
+## 4. Master Empirical Decision Table
 
-## 5. Decision Recommendation
-- **Recommended Candidate:** **C7 (HYBRID-MEDIAN)** or **C5 (Fixed No-Norm-Scaling)**. C7 provides the strongest defense surface: passive Median robustness guarantees safety during warmup rounds 1–5, while active C5 reputation tracking identifies and removes poisoners with 76.7% recall by mid-training.
+| Question | Answer | Supporting Table | Confidence |
+| :--- | :--- | :--- | :--- |
+| Does `fixed_e4` add defense capability over legacy D0 besides fewer false quarantines? | No. Legacy D0 achieves higher attacked RECON F1 (46.3% vs 45.4%) and attacker recall (90.0% vs 46.7%). Fixed E4 only reduces false positive quarantine. | [`FINDINGS_ADDENDUM.md` §E10.1](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#1-step-b-valid-validator-references-15-calibration-configs-30-rounds) | HIGH (n=30 runs, 15 clean + 15 atk) |
+| Which candidates survive across all 6 attack stress tests? | C1 (Median) and C7 (Hybrid Median) hold on single attacks (42–45% RECON F1). C2 (Multi-Krum) is top performer under 3 attackers (44.3%). C5 and Legacy D0 break on norm-matched attacks. | [`FINDINGS_ADDENDUM.md` §E10.2](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#22-candidate-performance-across-scenarios-mean-over-15-configs) | HIGH (n=540 runs across 6 scenarios) |
+| Why did attacker quarantine drop with norm scaling despite higher AUC? | Threshold/compression effect. Norm scaling cleans signal (honest std 0.64 -> 0.23) but compresses attacker Z to ~1.99, causing fixed thresholds ($|z|>2.5$) to miss them. | [`FINDINGS_ADDENDUM.md` §E10.3](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#31-step-d1-norm_z-distribution-scaling-effects-and-c5b-variant) | HIGH (n=44,100 telemetry records) |
+| Why did C4 collapse in P11_S1 and P12_S1? | Prior hypothesis refuted. Collapse was an artifact of validator dropout noise. Under corrected validator, C4 reaches 42.0% and 46.8%, matching Oracle exclusion. | [`FINDINGS_ADDENDUM.md` §E10.4](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#32-step-d2-quarantine-then-collapse-analysis-p11_s1-and-p12_s1) | HIGH (Verified with per-round weights) |
+| What was the denominator (1/5, 5/5) in factorial isolation? | Denominator is 10 clients. 1/5 was fraction simplification for 2/10 (20%), and 5/5 was a typo for 5/10 (50%). Fast validator is 100% bit-exact to old validator. | [`FINDINGS_ADDENDUM.md` §E10.5](file:///home/kriteshgoud/Documents/NMIMS/projects/CAPSTONE/FINDINGS_ADDENDUM.md#33-step-d3-factorial-isolation-2x2-rerun-on-3-calibration-configs) | HIGH (n=12 runs, bit-exact verified) |
 
-## 6. Standing Rules
-- Never fabricate, hardcode, or tune numbers; every metric must come from executed code.
-- Back every explanation with quantitative data tables; label untested claims as "hypothesis".
-- Work strictly on branch `rigor` with atomic commits; never push to `main` or `origin`.
-- Explain every touched file in plain language in `CHANGES.md` for a learner.
-
-## 7. Next Steps
-1. Stop and wait for user reply on Phase E4.2b completion.
-2. Prepare final evaluation run on held-out evaluation partitions `{101..105}` using the frozen candidate configs.
+## 5. Standing Rules
+- Never fabricate, hardcode, round up, or tune numbers; every metric must come from executed code.
+- Stress-test failures are results, not bugs to patch. Work strictly on branch `rigor`.
+- In `CHANGES.md`, explain purpose, system flow, and non-trivial code blocks in plain language.

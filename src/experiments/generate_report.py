@@ -360,22 +360,25 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
     main30_atk = df_atk[df_atk["eval_run_type"] == "main30"]
     main30_clean = df_clean[df_clean["eval_run_type"] == "main30"]
 
-    ref_median = main30_atk[main30_atk["eval_mode"] == "coordinate_median"].set_index(["partition_seed", "train_seed"])
-    ref_fedavg = main30_atk[main30_atk["eval_mode"] == "fedavg"].set_index(["partition_seed", "train_seed"])
+    ref_median_df = main30_atk[main30_atk["eval_mode"] == "coordinate_median"]
+    ref_fedavg_df = main30_atk[main30_atk["eval_mode"] == "fedavg"]
 
     candidates_eval = sorted(main30_atk["eval_mode"].unique())
     for cand in candidates_eval:
-        sub_c_atk = main30_atk[main30_atk["eval_mode"] == cand].set_index(["partition_seed", "train_seed"])
-        sub_c_cln = main30_clean[main30_clean["eval_mode"] == cand].set_index(["partition_seed", "train_seed"])
+        cand_atk_df = main30_atk[main30_atk["eval_mode"] == cand]
+        cand_cln_df = main30_clean[main30_clean["eval_mode"] == cand]
 
         # 1. Paired Attacked vs Clean Delta
-        if not sub_c_atk.empty and not sub_c_cln.empty:
+        if not cand_atk_df.empty and not cand_cln_df.empty:
+            sub_c_atk = cand_atk_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
+            sub_c_cln = cand_cln_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
             common = sub_c_atk.index.intersection(sub_c_cln.index)
             if len(common) > 0:
                 for met, lbl in [("macro_f1", "Macro-F1"), ("recon_f1", "RECON F1")]:
+                    diff_vals = sub_c_atk.loc[common, met].values - sub_c_cln.loc[common, met].values
                     d_df = pd.DataFrame({
                         "partition_seed": [idx[0] for idx in common],
-                        "diff": sub_c_atk.loc[common, met].values - sub_c_cln.loc[common, met].values
+                        "diff": diff_vals,
                     })
                     p_mean = sub_c_atk.loc[common, met].mean()
                     b_mean = sub_c_cln.loc[common, met].mean()
@@ -386,16 +389,19 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
                     )
 
         # 2. Candidate vs Coordinate Median (Attacked)
-        if cand != "coordinate_median" and not ref_median.empty and not sub_c_atk.empty:
-            common_m = sub_c_atk.index.intersection(ref_median.index)
+        if cand != "coordinate_median" and not ref_median_df.empty and not cand_atk_df.empty:
+            sub_c_atk = cand_atk_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
+            ref_m = ref_median_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
+            common_m = sub_c_atk.index.intersection(ref_m.index)
             if len(common_m) > 0:
                 for met, lbl in [("recon_f1", "RECON F1"), ("asr", "ASR"), ("macro_f1", "Macro-F1")]:
+                    diff_vals = sub_c_atk.loc[common_m, met].values - ref_m.loc[common_m, met].values
                     d_df = pd.DataFrame({
                         "partition_seed": [idx[0] for idx in common_m],
-                        "diff": sub_c_atk.loc[common_m, met].values - ref_median.loc[common_m, met].values
+                        "diff": diff_vals,
                     })
                     p_mean = sub_c_atk.loc[common_m, met].mean()
-                    b_mean = ref_median.loc[common_m, met].mean()
+                    b_mean = ref_m.loc[common_m, met].mean()
                     d_m, d_lo, d_hi = cluster_bootstrap_delta(d_df, "partition_seed", "diff")
                     lines.append(
                         f"| `{cand}` vs `coordinate_median` | {lbl} | {p_mean*100:.2f}% | {b_mean*100:.2f}% | "
@@ -403,16 +409,19 @@ def generate_report(run_dir: Path | str, output_path: Path | str | None = None, 
                     )
 
         # 3. Candidate vs FedAvg (Attacked)
-        if cand != "fedavg" and not ref_fedavg.empty and not sub_c_atk.empty:
-            common_f = sub_c_atk.index.intersection(ref_fedavg.index)
+        if cand != "fedavg" and not ref_fedavg_df.empty and not cand_atk_df.empty:
+            sub_c_atk = cand_atk_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
+            ref_f = ref_fedavg_df.groupby(["partition_seed", "train_seed"]).mean(numeric_only=True)
+            common_f = sub_c_atk.index.intersection(ref_f.index)
             if len(common_f) > 0:
                 for met, lbl in [("recon_f1", "RECON F1"), ("asr", "ASR"), ("macro_f1", "Macro-F1")]:
+                    diff_vals = sub_c_atk.loc[common_f, met].values - ref_f.loc[common_f, met].values
                     d_df = pd.DataFrame({
                         "partition_seed": [idx[0] for idx in common_f],
-                        "diff": sub_c_atk.loc[common_f, met].values - ref_fedavg.loc[common_f, met].values
+                        "diff": diff_vals,
                     })
                     p_mean = sub_c_atk.loc[common_f, met].mean()
-                    b_mean = ref_fedavg.loc[common_f, met].mean()
+                    b_mean = ref_f.loc[common_f, met].mean()
                     d_m, d_lo, d_hi = cluster_bootstrap_delta(d_df, "partition_seed", "diff")
                     lines.append(
                         f"| `{cand}` vs `fedavg` | {lbl} | {p_mean*100:.2f}% | {b_mean*100:.2f}% | "

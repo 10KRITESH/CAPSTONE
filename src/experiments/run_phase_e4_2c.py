@@ -147,31 +147,24 @@ def fast_evaluate(
         logits = model(X_test_gpu)
         preds = torch.argmax(logits, dim=1)
 
-    preds_np = preds.cpu().numpy()
-    y_true_np = y_test_gpu.cpu().numpy()
+    conf = torch.bincount(y_test_gpu * 8 + preds, minlength=64).reshape(8, 8).float()
+    diag = torch.diag(conf)
+    col_sum = conf.sum(dim=0)  # TP + FP
+    row_sum = conf.sum(dim=1)  # TP + FN
 
-    num_classes = 8
-    f1s = []
-    recalls = []
-    for c in range(num_classes):
-        tp = np.sum((preds_np == c) & (y_true_np == c))
-        fp = np.sum((preds_np == c) & (y_true_np != c))
-        fn = np.sum((preds_np != c) & (y_true_np == c))
+    prec = torch.where(col_sum > 0, diag / col_sum, torch.zeros_like(diag))
+    rec = torch.where(row_sum > 0, diag / row_sum, torch.zeros_like(diag))
+    denom = prec + rec
+    f1s_gpu = torch.where(denom > 0, (2.0 * prec * rec) / denom, torch.zeros_like(diag))
 
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = (2.0 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
-        f1s.append(f1)
-        recalls.append(rec)
+    macro_f1 = float(f1s_gpu.mean().item())
+    bal_acc = float(rec.mean().item())
+    acc = float((diag.sum() / conf.sum()).item())
+    recon_f1 = float(f1s_gpu[4].item())
 
-    macro_f1 = float(np.mean(f1s))
-    bal_acc = float(np.mean(recalls))
-    acc = float(np.mean(preds_np == y_true_np))
-    recon_f1 = float(f1s[4])
-
-    recon_mask = y_true_np == 4
-    if np.sum(recon_mask) > 0:
-        asr = float(np.sum((preds_np == 0) & recon_mask) / np.sum(recon_mask))
+    recon_total = row_sum[4].item()
+    if recon_total > 0:
+        asr = float((conf[4, 0] / recon_total).item())
     else:
         asr = 0.0
 
@@ -685,7 +678,7 @@ def run_simulation(
         else:
             # Fixed Defense, C4, C5, C5b, d2_z3, or fixed_e4
             use_hs = not custom_params.get("no_head_salience", False)
-            agg_global, agg_meta = aggregate_trust_class_aware(
+            agg_global, agg_time = aggregate_trust_class_aware(
                 global_model=global_model,
                 updates=client_updates,
                 sample_counts=client_samples,
@@ -698,15 +691,65 @@ def run_simulation(
             global_model.load_state_dict(agg_global)
 
             if config.get("log_d2_weights", False):
-                rep_r4 = [rep_manager.reputation_table[cid].get("RECON", 1.0) for cid in range(10)]
+                # Calculate body weights
+                body_weights = []
+                for c_id, n_i in zip(range(10), client_samples):
+                    sf = state_factors.get(c_id, 1.0)
+                    rep_dict = rep_manager.reputation_table.get(c_id, {cls: 1.0 for cls in class_names})
+                    base_trust = sum(rep_dict.values()) / max(1, len(rep_dict))
+                    min_rep = min(rep_dict.values()) if rep_dict else 1.0
+                    body_trust = base_trust * (min_rep ** 3.0) if min_rep < 0.70 else base_trust
+                    w = (n_i ** 0.5) * body_trust * sf
+                    body_weights.append(w)
+                sum_bw = sum(body_weights)
+                norm_bw = [w / sum_bw for w in body_weights] if sum_bw > 1e-8 else [0.1] * 10
+
+                # Calculate head weights for class 4 (RECON)
+                client_head_saliences = []
+                for update in client_updates:
+                    head_w = update.get("head.weight")
+                    head_b = update.get("head.bias")
+                    if head_w is not None and head_w.ndim == 2:
+                        row_sq = torch.sum(head_w.float() ** 2, dim=1)
+                        if head_b is not None:
+                            row_sq = row_sq + (head_b.float() ** 2)
+                        row_norms = torch.sqrt(row_sq + 1e-12)
+                        total_head = torch.norm(row_norms) + 1e-8
+                        normed = (row_norms / total_head).cpu().numpy()
+                        sal = float(normed[4])
+                    else:
+                        sal = 1.0 / len(class_names)
+                    client_head_saliences.append(sal)
+
+                c_weights = []
+                for idx, (c_id, n_i) in enumerate(zip(range(10), client_samples)):
+                    sf = state_factors.get(c_id, 1.0)
+                    r_ic = rep_manager.reputation_table.get(c_id, {}).get("RECON", 1.0)
+                    r_effective = (r_ic ** 3.0) if r_ic >= 0.65 else 0.0
+                    salience = (client_head_saliences[idx] + 0.05) if use_hs else 1.0
+                    w = (n_i ** 0.5) * salience * r_effective * sf
+                    c_weights.append(w)
+                sum_hw = sum(c_weights)
+                if sum_hw > 1e-8:
+                    norm_hw = [w / sum_hw for w in c_weights]
+                else:
+                    best_idx = max(range(10), key=lambda idx: rep_manager.reputation_table.get(idx, {}).get("RECON", 0.0))
+                    norm_hw = [0.0] * 10
+                    norm_hw[best_idx] = 1.0
+
+                rep_r4 = [rep_manager.reputation_table.get(cid, {}).get("RECON", 1.0) for cid in range(10)]
                 r_eff = [max(0.0, (r_val - 0.65) / 0.35) for r_val in rep_r4]
                 d2_logging_records.append({
                     "round": r,
                     "config": config["run_name"],
                     "oracle": False,
-                    "attacker_weights": agg_meta.get("client_weights", [0.0]*10),
+                    "body_weights": norm_bw,
+                    "head_weights_recon": norm_hw,
+                    "attacker_weights": [norm_hw[aid] for aid in malicious_set],
+                    "honest_weights": [norm_hw[hid] for hid in range(10) if hid not in malicious_set],
                     "recon_reputations": rep_r4,
                     "r_effective": r_eff,
+                    "state_factors": [state_factors.get(cid, 1.0) for cid in range(10)],
                 })
 
         track_all = config.get("track_every_round", False) or config.get("step") in ("step4", "step8", "stress_test")
