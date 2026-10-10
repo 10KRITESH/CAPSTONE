@@ -130,8 +130,9 @@ def analyze_e4_2b(runs_file: Path, telem_file: Path, out_report: Path):
 
     table_header = (
         "| Candidate | Clean Macro-F1 | Attacked Macro-F1 | Paired Δ (Atk-Clean) | "
-        "Attacked RECON F1 | Attacked ASR | Honest Quarantine | Attacker Detection | Cost (s/rnd) |\n"
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
+        "Attacked RECON F1 | Attacked ASR | Clean Honest Quar (k/n) | Clean Data Excl (%) | "
+        "Attacked Honest Quar (k/n) | Attacked Data Excl (%) | Attacker Quar (k/n) | Attacker Prob (k/n) | Attacker Prec (k/n) | Cost (s/rnd) |\n"
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
     )
     report_lines.append(table_header)
 
@@ -151,9 +152,26 @@ def analyze_e4_2b(runs_file: Path, telem_file: Path, out_report: Path):
 
         atk_recon = sub_atk["recon_f1"].values
         atk_asr = sub_atk["asr"].values
-        hq_rates = sub_atk["honest_quar_rate"].values
-        atk_q_rates = sub_atk["attacker_quar_rate"].values
-        atk_p_rates = sub_atk["attacker_prob_rate"].values
+        
+        # Clean honest quarantine (10 clients x 15 runs = 150 client opportunities)
+        tot_honest_clean = len(sub_clean) * 10
+        tot_honest_quar_clean = int(round(np.sum(sub_clean["honest_quar_rate"] * 10)))
+        clean_hde = sub_clean["honest_data_exclusion"].mean() * 100 if "honest_data_exclusion" in sub_clean.columns else 0.0
+
+        # Attacked honest quarantine (8 clients x 15 runs = 120 client opportunities)
+        tot_honest_atk = len(sub_atk) * 8
+        tot_honest_quar_atk = int(round(np.sum(sub_atk["honest_quar_rate"] * 8)))
+        atk_hde = sub_atk["honest_data_exclusion"].mean() * 100 if "honest_data_exclusion" in sub_atk.columns else 0.0
+
+        # Attacker detection counts k/n (2 attackers x 15 runs = 30 attacker opportunities)
+        tot_atk = len(sub_atk) * 2
+        tot_atk_quar = int(round(np.sum(sub_atk["attacker_quar_rate"] * 2)))
+        tot_atk_prob = int(round(np.sum(sub_atk["attacker_prob_rate"] * 2)))
+        
+        # Precision: TP / (TP + FP)
+        tot_flags = tot_atk_quar + tot_honest_quar_atk
+        prec_str = f"{tot_atk_quar}/{tot_flags} ({tot_atk_quar/tot_flags*100:.1f}%)" if tot_flags > 0 else "0/0 (n/a)"
+
         wall_times = sub_atk["wall_time_s"].values / 30.0
 
         c_f1_m, (c_f1_l, c_f1_h) = np.mean(clean_f1), bootstrap_ci(clean_f1)
@@ -162,21 +180,14 @@ def analyze_e4_2b(runs_file: Path, telem_file: Path, out_report: Path):
         rec_m, (rec_l, rec_h) = np.mean(atk_recon), bootstrap_ci(atk_recon)
         asr_m, (asr_l, asr_h) = np.mean(atk_asr), bootstrap_ci(atk_asr)
 
-        # Honest quarantine counts k/n (8 honest clients x 15 runs = 120 client opportunities)
-        tot_honest = len(sub_atk) * 8
-        tot_honest_quar = int(round(np.sum(hq_rates * 8)))
-
-        # Attacker detection counts k/n (2 attackers x 15 runs = 30 attacker opportunities)
-        tot_atk = len(sub_atk) * 2
-        tot_atk_quar = int(round(np.sum(atk_q_rates * 2)))
-        tot_atk_prob = int(round(np.sum(atk_p_rates * 2)))
-
         row_str = (
             f"| **{c_name}** | {format_ci(c_f1_m, c_f1_l, c_f1_h)} | {format_ci(a_f1_m, a_f1_l, a_f1_h)} | "
             f"{format_ci(p_d_m, p_d_l, p_d_h)} | {format_ci(rec_m, rec_l, rec_h)} | {format_ci(asr_m, asr_l, asr_h)} | "
-            f"{tot_honest_quar}/{tot_honest} ({np.mean(hq_rates)*100:.1f}%) | "
-            f"{tot_atk_quar}/{tot_atk} ({np.mean(atk_q_rates)*100:.1f}%) | "
-            f"{np.mean(wall_times):.3f}s |"
+            f"{tot_honest_quar_clean}/{tot_honest_clean} ({tot_honest_quar_clean/tot_honest_clean*100:.1f}%) | {clean_hde:.1f}% | "
+            f"{tot_honest_quar_atk}/{tot_honest_atk} ({tot_honest_quar_atk/tot_honest_atk*100:.1f}%) | {atk_hde:.1f}% | "
+            f"{tot_atk_quar}/{tot_atk} ({tot_atk_quar/tot_atk*100:.1f}%) | "
+            f"{tot_atk_prob}/{tot_atk} ({tot_atk_prob/tot_atk*100:.1f}%) | "
+            f"{prec_str} | {np.mean(wall_times):.3f}s |"
         )
         report_lines.append(row_str + "\n")
 
@@ -185,12 +196,17 @@ def analyze_e4_2b(runs_file: Path, telem_file: Path, out_report: Path):
             "atk_f1": a_f1_m,
             "atk_recon": rec_m,
             "atk_asr": asr_m,
-            "hq_rate": np.mean(hq_rates),
-            "atk_quar_rate": np.mean(atk_q_rates),
-            "atk_prob_rate": np.mean(atk_p_rates),
+            "hq_rate_clean": tot_honest_quar_clean / tot_honest_clean,
+            "hq_rate_atk": tot_honest_quar_atk / tot_honest_atk,
+            "hde_clean": clean_hde,
+            "hde_atk": atk_hde,
+            "atk_quar_rate": tot_atk_quar / tot_atk,
+            "atk_prob_rate": tot_atk_prob / tot_atk,
             "cost_per_round": np.mean(wall_times),
-            "tot_honest_quar": tot_honest_quar,
-            "tot_honest": tot_honest,
+            "tot_honest_quar_clean": tot_honest_quar_clean,
+            "tot_honest_clean": tot_honest_clean,
+            "tot_honest_quar_atk": tot_honest_quar_atk,
+            "tot_honest_atk": tot_honest_atk,
             "tot_atk_quar": tot_atk_quar,
             "tot_atk_prob": tot_atk_prob,
             "tot_atk": tot_atk,
@@ -393,16 +409,16 @@ def analyze_e4_2b(runs_file: Path, telem_file: Path, out_report: Path):
     report_lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :--- |\n")
 
     buys_desc = {
-        "C0_fedavg": "None (complete representation collapse under attack).",
-        "C1_median": "**Baseline anchor**: passive statistical defense, zero attribution, cannot identify attackers.",
-        "C2_krum": "High compute cost ($O(n^2)$ distances); lower utility (-2.4% Clean Macro-F1).",
-        "C3_trimmed_mean": "Weaker minority protection than Median (-10.0% RECON F1).",
-        "C4_fixed_e4_1": "Cryptographic attribution, but trails Median by ~23 RECON points due to norm power scaling.",
-        "C5_fixed_no_norm_scaling": "**Matches/Exceeds Median robustness** (44.70% vs 43.03% RECON F1), adds 73.3% attacker quarantine + auditability.",
-        "C6_oracle_d1": "Theoretical upper bound with perfect omniscient round-1 containment.",
-        "C7_hybrid_median": "**Best overall defense**: exceeds Median (44.93% RECON F1, 14.44% ASR) + active attribution + zero degradation risk.",
-        "C8_hybrid_trimmed": "Active attribution with coordinate trimming; matches Median (43.22% RECON F1).",
-        "C9_detector_log_only": "Zero degradation risk, 100% attribution logging, but zero active mitigation (trails Median on RECON).",
+        "C0_fedavg": "Undefended baseline. Attacked RECON F1 collapses to 6.34% (-36.69% vs Median); 0% attribution.",
+        "C1_median": "Coordinate Median baseline. Attacked RECON F1 43.03%, ASR 14.21%; passive defense, 0% attribution.",
+        "C2_krum": "Multi-Krum. Attacked RECON F1 44.86%, ASR 11.34%; clean Macro-F1 44.59% (-2.42% vs Median); passive defense, 0% attribution.",
+        "C3_trimmed_mean": "Trimmed Mean. Attacked RECON F1 32.99% (-10.04% vs Median), ASR 18.61%; passive defense, 0% attribution.",
+        "C4_fixed_e4_1": "Fixed-E4.1. Attacked RECON F1 19.84% (-23.19% vs Median); 13/30 attacker quarantine recall, 6/120 clean honest quarantine.",
+        "C5_fixed_no_norm_scaling": "Fixed No Norm Scaling. Attacked RECON F1 44.70% (+1.67% vs Median), ASR 11.91%; 22/30 attacker quarantine recall, 13/120 attacked honest quarantine (18/150 clean honest quarantine).",
+        "C6_oracle_d1": "Oracle Exclusion D1. Attacked RECON F1 42.09%, ASR 11.84%; round 1 omniscient exclusion.",
+        "C7_hybrid_median": "Hybrid-Median. Attacked RECON F1 44.93% (+1.90% vs Median), ASR 14.44%; 23/30 attacker quarantine recall, 18/120 attacked honest quarantine (24/150 clean honest quarantine).",
+        "C8_hybrid_trimmed": "Hybrid-Trimmed. Attacked RECON F1 43.22% (+0.19% vs Median), ASR 14.42%; 23/30 attacker quarantine recall, 12/120 attacked honest quarantine (21/150 clean honest quarantine).",
+        "C9_detector_log_only": "Detector Log-Only. Attacked RECON F1 6.34% (-36.69% vs Median); 15/30 attacker quarantine recall, 8/120 attacked honest quarantine (20/150 clean honest quarantine). FedAvg aggregation.",
     }
 
     for c_tag, c_name in candidates:

@@ -926,4 +926,28 @@
 - **Block-by-block explanation:**
   - Stores each candidate's parameters (defense type, warmup rounds, thresholds, norm scaling power) and records the frozen git commit hash and SHA-256 checksum.
 
+## Phase E4.2c: Provenance & Validator Reference Benchmarks
+
+### `src/experiments/generate_report.py`
+- **Purpose:** Generates the master `RESULTS.md` analysis report from experimental `runs.jsonl`.
+- **How it fits into overall flow:** Consolidates run metrics across all benchmark runs, computes summary tables, confidence intervals, and paired differences.
+- **Block-by-block explanation:**
+  - *Disaggregated Grouping Keys:* Keys every table by `(eval_mode, eval_rounds, eval_run_type)` where `run_type` $\in \{\text{main30}, \text{long60}, \text{oracle\_delay}\}$, eliminating improper pooling between 30-round, 60-round, and delayed oracle runs.
+  - *Condition-Split Quarantine Reporting:* Section 2.1 (Clean) reports honest client quarantine $k/n$ and honest data exclusion %; Section 2.2 (Attacked) reports honest quarantine $k/n$, honest data exclusion %, attacker quarantine recall $k/n$, and attacker probation $k/n$. Attacker metrics are never shown for clean runs (`n/a`).
+  - *Section 4 Paired Differences with Vectorized Cluster Bootstrap:* Fills Section 4 with paired deltas (Candidate vs. FedAvg, Candidate vs. Coordinate Median, and Attacked vs. Clean) using vectorized NumPy cluster bootstrap resampled over partitions ($n=3$ clusters, with explicit warning that $n < 8$ is unreliable).
+
+### `src/experiments/analyze_phase_e4_2b.py`
+- **Purpose:** Produces the specialized Phase E4.2b analysis report (`reports/phase_e4_2b/RESULTS.md`).
+- **How it fits into overall flow:** Synthesizes candidate metrics, operational curves, norm scaling dissection, and the final decision matrix.
+- **Block-by-block explanation:**
+  - *Candidate Table Quarantine Breakdown:* Added clean-run honest quarantine ($k/n$ clients and % honest data lost), attacked-run honest quarantine ($k/n$ clients and % honest data lost), attacker quarantine $k/n$, and attacker probation $k/n$.
+  - *Neutral Decision Table:* Stripped all marketing language and prescriptive recommendations; replaced with objective empirical fact metrics (clean macro-F1, attacked RECON F1, ASR, honest quarantine, attacker recall).
+
+### `FINDINGS_ADDENDUM.md`
+- **Purpose:** Living addendum documenting empirical discoveries, mathematical analyses, and findings across benchmark phases.
+- **How it fits into overall flow:** Informs ongoing architectural decisions and tracks root causes of observed system behaviors.
+- **Block-by-block explanation:**
+  - *SUPERSEDED Banners on Parts 7 and 8:* Inserted prominent warning banners detailing the validator dropout bug (active `Dropout(0.3)` due to missing `model.eval()`), specifying that probe metrics in E4.1/E4.2a were distorted, and listing the surviving tables that did not rely on the probe (FedAvg, Median, Krum, Trimmed Mean, Oracle exclusion).
+
+
 

@@ -678,6 +678,19 @@ Tracked test Macro-F1 across rounds 1..30 on clean FedAvg across all 6 calibrati
 
 ## Part 7: Phase E4.1 Systematic Hardening & Ultra-Fast Cloud Verification (Cloud GPU, 30 Rounds)
 
+> [!WARNING]
+> **SUPERSEDED — VALIDATOR DROPOUT BUG:**
+> The probe-based metrics, honest quarantine rates, and detector evaluations in Phase E4.1 were computed using a fast GPU validation routine where `Dropout(p=0.30)` remained active during validation inference (`model.eval()` was absent in `_evaluate_fast` in `src/trust/validator.py`). Stochastic dropout activations introduced artificial variance into per-class validation probes, inflating false alarms on Dirichlet minority classes.
+> 
+> **Surviving Tables (Not Using Validation Probes):**
+> - Clean and Attacked `fedavg` (Undefended baseline)
+> - Clean and Attacked `coordinate_median` (Passive statistical defense)
+> - Clean and Attacked `krum` / Multi-Krum (Distance-based aggregation)
+> - Clean and Attacked `trimmed_mean` (Coordinate-trimmed aggregation)
+> - `oracle_exclusion` (Round 1 / omniscient exclusion)
+> 
+> All tables evaluating detector-driven trust defenses (`legacy_d0`, `fixed_e4`, `fixed_e4_1`) are superseded by the Phase E4.2b / E4.2c deterministic benchmark with `model.eval()` active.
+
 **Platform:** Kaggle GPU (NVIDIA Tesla T4), 30 rounds, 4 parallel workers, 36 simulations across Calibration configs ({11, 12, 13} x {1, 2}).  
 **Total Wall Time:** 402.4s (6.7 minutes) simulation compute, 447.2s (7.4 minutes) total container execution (down from 1,601s / 26.8 min, a **$3.6\times$ cloud throughput speedup**).  
 **Telemetry Sample Size:** 10,800 client-round observation records.
@@ -717,6 +730,18 @@ Tracked test Macro-F1 across rounds 1..30 on clean FedAvg across all 6 calibrati
 ---
 
 # Part 8: Phase E4.2a Empirical Resolution — Controls, Baselines, Ablations, and Threshold Sweeps (662 Simulations)
+
+> [!WARNING]
+> **SUPERSEDED — VALIDATOR DROPOUT BUG & POOLED ABLATIONS:**
+> 1. **Validator Dropout Stochasticity:** The fast GPU validator in Phase E4.2a ran without `model.eval()`, allowing `Dropout(p=0.30)` noise to trigger false minority degradation alarms. This distorted Legacy D0 honest quarantine rates (inflating them to 63.3%–77.1%) and affected fixed defense probe measurements.
+> 2. **Pooled Ablations:** The Leave-One-Out ablation matrix (Table E8.3) pooled clean and attacked runs together, and tested 4 switches (`no_cohort_cosine`, `no_round6_reset`, `probation_040`, `d2_z3`) that were unwired or tautological.
+> 
+> **Surviving Tables (Not Using Validation Probes):**
+> - Step 1: `fedavg` rows (clean and attacked) across CPU and GPU loops
+> - Step 3: Classical Byzantine Baselines (`coordinate_median`, `krum`, `trimmed_mean`, `oracle_exclusion`)
+> - Step 6: Oracle Delay Tolerance (`oracle_delay` T=1, 5, 10, 20)
+> 
+> All probe-dependent detector tables (`legacy_d0`, `fixed_e4_1`, ablation matrix, ROC sweeps) are superseded by Phase E4.2b and E4.2c.
 
 ## E8.1 Scope & Execution Provenance
 Phase E4.2a was executed on Kaggle dual Tesla T4 GPUs across 8 parallel workers, completing **662 full federated simulations** (>19,800 rounds) across calibration partitions `{11, 12, 13}` and training seeds `{1, 2}` in 7,852.5s (2.18h, averaging 11.8s per simulation across the cluster). Evaluation partitions `{101..105}` were strictly held out.

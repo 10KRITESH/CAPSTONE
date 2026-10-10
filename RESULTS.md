@@ -1,6 +1,6 @@
 # AUTO-GENERATED, do not edit by hand
 # Run ID: phase_e4_2b
-# Date: 2026-10-09 17:28:17 UTC
+# Date: 2026-10-10 01:56:19 UTC
 # Git Commit: 7403dc5
 # Benchmark Label: EVIDENCE
 
@@ -13,37 +13,43 @@
 - **Partitions Evaluated:** `[11, 12, 13]` (n = 3)
 - **Evaluation Seeds:** `[1, 2, 3, 4, 5]` (n = 5)
 - **Total Simulations:** `390`
-- **Modes Evaluated:** `['coordinate_median', 'detector_log_only', 'fedavg', 'fixed_e4_1', 'fixed_no_norm_scaling', 'hybrid_median', 'hybrid_trimmed', 'krum', 'oracle_d1', 'trimmed_mean']`
+- **Modes Evaluated:** `['coordinate_median', 'detector_log_only', 'fedavg', 'fixed_e4_1', 'fixed_no_norm_scaling', 'hybrid_median', 'hybrid_trimmed', 'krum', 'oracle_d1', 'oracle_delay_T1', 'oracle_delay_T10', 'trimmed_mean']`
 - **Mean Realized Attacker RECON Share:** `32.7%`
 
 ## 2. Empirical Performance Matrix
 ### 2.1 Clean Condition (No Attackers)
-| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) |
-| :--- | :---: | :---: | :---: | :---: |
-| **coordinate_median** | 47.01% [46.53%, 47.48%] | 45.57% [44.65%, 46.44%] | 0/150 (0.0%) | 0.0% |
-| **detector_log_only** | 49.09% [47.88%, 50.16%] | 43.98% [42.54%, 45.43%] | 20/150 (13.3%) | 26.8% |
-| **fedavg** | 49.09% [47.90%, 50.12%] | 43.98% [42.49%, 45.38%] | 0/150 (0.0%) | 0.0% |
-| **fixed_e4_1** | 47.67% [47.00%, 48.31%] | 43.67% [42.07%, 45.11%] | 18/150 (12.0%) | 25.0% |
-| **fixed_no_norm_scaling** | 47.98% [47.39%, 48.55%] | 44.26% [42.79%, 45.67%] | 18/150 (12.0%) | 25.0% |
-| **hybrid_median** | 47.08% [46.47%, 47.75%] | 45.22% [44.18%, 46.20%] | 24/150 (16.0%) | 31.1% |
-| **hybrid_trimmed** | 47.27% [46.58%, 47.99%] | 45.11% [44.01%, 46.14%] | 21/150 (14.0%) | 28.3% |
-| **krum** | 44.59% [43.12%, 46.05%] | 44.65% [43.40%, 45.80%] | 0/150 (0.0%) | 0.0% |
-| **oracle_d1** | 49.09% [47.88%, 50.16%] | 43.98% [42.54%, 45.43%] | 0/150 (0.0%) | 0.0% |
-| **trimmed_mean** | 47.69% [47.02%, 48.45%] | 45.60% [44.60%, 46.58%] | 0/150 (0.0%) | 0.0% |
+| Mode | Rounds | Run Type | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **coordinate_median** | 30 | main30 | 47.01% [46.53%, 47.48%] | 45.57% [44.65%, 46.44%] | 0/150 (0.0%) | 0.0% |
+| **detector_log_only** | 30 | main30 | 49.09% [47.88%, 50.16%] | 43.98% [42.54%, 45.43%] | 20/150 (13.3%) | 26.8% |
+| **fedavg** | 30 | main30 | 49.09% [47.90%, 50.12%] | 43.98% [42.49%, 45.38%] | 0/150 (0.0%) | 0.0% |
+| **fixed_e4_1** | 30 | main30 | 47.67% [47.00%, 48.31%] | 43.67% [42.07%, 45.11%] | 18/150 (12.0%) | 25.0% |
+| **fixed_no_norm_scaling** | 30 | main30 | 47.98% [47.39%, 48.55%] | 44.26% [42.79%, 45.67%] | 18/150 (12.0%) | 25.0% |
+| **hybrid_median** | 30 | main30 | 47.08% [46.47%, 47.75%] | 45.22% [44.18%, 46.20%] | 24/150 (16.0%) | 31.1% |
+| **hybrid_trimmed** | 30 | main30 | 47.27% [46.58%, 47.99%] | 45.11% [44.01%, 46.14%] | 21/150 (14.0%) | 28.3% |
+| **krum** | 30 | main30 | 44.59% [43.12%, 46.05%] | 44.65% [43.40%, 45.80%] | 0/150 (0.0%) | 0.0% |
+| **oracle_d1** | 30 | main30 | 49.09% [47.88%, 50.16%] | 43.98% [42.54%, 45.43%] | 0/150 (0.0%) | 0.0% |
+| **trimmed_mean** | 30 | main30 | 47.69% [47.02%, 48.45%] | 45.60% [44.60%, 46.58%] | 0/150 (0.0%) | 0.0% |
 
 ### 2.2 Attacked Condition (Targeted Label Flip)
-| Mode | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) | Attacker Quar Det (k/n) | Attacker Prob Det (k/n) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **coordinate_median** | 50.00% [48.88%, 51.09%] | 43.70% [42.86%, 44.49%] | 14.56% [13.08%, 16.00%] | 0/240 (0.0%) | 0.0% | 0/60 (0.0%) | 0/60 (0.0%) |
-| **detector_log_only** | 44.64% [43.76%, 45.68%] | 6.34% [0.73%, 14.03%] | 28.95% [21.99%, 36.47%] | 8/120 (6.7%) | 11.4% | 15/30 (50.0%) | 18/30 (60.0%) |
-| **fedavg** | 46.95% [46.32%, 47.56%] | 25.46% [20.52%, 30.61%] | 18.32% [15.21%, 21.46%] | 0/480 (0.0%) | 0.0% | 0/120 (0.0%) | 0/120 (0.0%) |
-| **fixed_e4_1** | 45.02% [43.30%, 46.78%] | 19.84% [8.97%, 31.34%] | 22.97% [17.26%, 28.51%] | 6/120 (5.0%) | 7.1% | 13/30 (43.3%) | 15/30 (50.0%) |
-| **fixed_no_norm_scaling** | 49.32% [48.51%, 50.18%] | 44.49% [42.69%, 46.16%] | 11.85% [10.07%, 13.87%] | 21/240 (8.8%) | 11.8% | 42/60 (70.0%) | 49/60 (81.7%) |
-| **hybrid_median** | 49.23% [48.22%, 50.19%] | 44.48% [43.51%, 45.37%] | 15.15% [13.72%, 16.35%] | 29/240 (12.1%) | 17.4% | 43/60 (71.7%) | 50/60 (83.3%) |
-| **hybrid_trimmed** | 46.64% [45.60%, 47.49%] | 43.22% [37.96%, 46.78%] | 14.42% [10.88%, 18.58%] | 12/120 (10.0%) | 16.5% | 23/30 (76.7%) | 29/30 (96.7%) |
-| **krum** | 44.41% [43.31%, 45.65%] | 44.86% [43.78%, 45.88%] | 11.34% [9.03%, 13.88%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
-| **oracle_d1** | 47.67% [46.31%, 48.92%] | 42.09% [39.22%, 44.56%] | 11.84% [8.65%, 15.27%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
-| **trimmed_mean** | 46.01% [45.09%, 47.02%] | 32.99% [29.66%, 36.03%] | 18.61% [15.19%, 22.46%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| Mode | Rounds | Run Type | Macro-F1 (%) [95% CI] | RECON F1 (%) [95% CI] | ASR (%) [95% CI] | Honest Quar (k/n) | Honest Data Excl (%) | Attacker Quar Det (k/n) | Attacker Prob Det (k/n) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **coordinate_median** | 30 | main30 | 47.29% [46.38%, 48.24%] | 43.03% [41.60%, 44.44%] | 14.21% [11.44%, 16.99%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **coordinate_median** | 60 | long60 | 52.71% [52.23%, 53.15%] | 44.36% [43.71%, 44.97%] | 14.91% [13.78%, 15.96%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **detector_log_only** | 30 | main30 | 44.64% [43.76%, 45.68%] | 6.34% [0.73%, 14.03%] | 28.95% [21.99%, 36.47%] | 8/120 (6.7%) | 11.4% | 15/30 (50.0%) | 18/30 (60.0%) |
+| **fedavg** | 30 | main30 | 44.64% [43.76%, 45.67%] | 6.34% [0.75%, 14.29%] | 28.95% [21.91%, 36.37%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **fedavg** | 60 | long60 | 47.92% [46.82%, 49.08%] | 9.19% [2.97%, 16.59%] | 21.78% [17.33%, 26.25%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **fixed_e4_1** | 30 | main30 | 45.02% [43.30%, 46.78%] | 19.84% [8.97%, 31.34%] | 22.97% [17.26%, 28.51%] | 6/120 (5.0%) | 7.1% | 13/30 (43.3%) | 15/30 (50.0%) |
+| **fixed_no_norm_scaling** | 30 | main30 | 47.55% [46.72%, 48.32%] | 44.70% [42.21%, 46.71%] | 11.91% [8.92%, 15.29%] | 13/120 (10.8%) | 15.0% | 22/30 (73.3%) | 24/30 (80.0%) |
+| **fixed_no_norm_scaling** | 60 | long60 | 51.10% [50.46%, 51.85%] | 44.29% [41.65%, 46.72%] | 11.79% [10.21%, 13.42%] | 8/120 (6.7%) | 8.5% | 20/30 (66.7%) | 25/30 (83.3%) |
+| **hybrid_median** | 30 | main30 | 46.90% [46.05%, 47.81%] | 44.93% [43.63%, 46.11%] | 14.44% [12.32%, 16.14%] | 18/120 (15.0%) | 21.3% | 23/30 (76.7%) | 26/30 (86.7%) |
+| **hybrid_median** | 60 | long60 | 51.56% [50.96%, 52.16%] | 44.02% [42.55%, 45.32%] | 15.85% [14.13%, 17.54%] | 11/120 (9.2%) | 13.6% | 20/30 (66.7%) | 24/30 (80.0%) |
+| **hybrid_trimmed** | 30 | main30 | 46.64% [45.60%, 47.49%] | 43.22% [37.96%, 46.78%] | 14.42% [10.88%, 18.58%] | 12/120 (10.0%) | 16.5% | 23/30 (76.7%) | 29/30 (96.7%) |
+| **krum** | 30 | main30 | 44.41% [43.31%, 45.65%] | 44.86% [43.78%, 45.88%] | 11.34% [9.03%, 13.88%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **oracle_d1** | 30 | main30 | 47.67% [46.31%, 48.92%] | 42.09% [39.22%, 44.56%] | 11.84% [8.65%, 15.27%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **oracle_delay_T1** | 30 | oracle_delay | 47.67% [46.31%, 48.92%] | 42.09% [39.22%, 44.56%] | 11.84% [8.65%, 15.27%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **oracle_delay_T10** | 30 | oracle_delay | 47.55% [46.37%, 48.72%] | 44.21% [41.84%, 46.14%] | 10.69% [7.30%, 14.34%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
+| **trimmed_mean** | 30 | main30 | 46.01% [45.09%, 47.02%] | 32.99% [29.66%, 36.03%] | 18.61% [15.19%, 22.46%] | 0/120 (0.0%) | 0.0% | 0/30 (0.0%) | 0/30 (0.0%) |
 
 ## 3. Diagnostic Telemetry & Flaw Analyses
 - **Total Simulations Executed:** `390` (Clean: `150`, Attacked: `240`)
@@ -51,8 +57,84 @@
 - **Realized Attacker RECON Sample Share:** Mean `32.7%` (Min: `27.8%`, Max: `39.6%`)
 
 ## 4. Paired Comparisons vs. Baselines (Attacked Condition)
-| Comparison | Metric | Proposed Mean | Baseline Mean | Paired Delta [95% CI] |
-| :--- | :--- | :---: | :---: | :---: |
+All deltas computed per configuration. Confidence intervals derived via cluster bootstrap by partition (n=3 clusters; labeled **unreliable** per prompt rule n < 8).
+
+| Comparison | Metric | Proposed Mean | Baseline Mean | Paired Delta [95% CI] | Note |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| `coordinate_median` (Atk vs Cln) | Macro-F1 | 47.29% | 47.01% | +0.27% [-0.32%, +1.13%] | Unreliable CI (n=3 clusters) |
+| `coordinate_median` (Atk vs Cln) | RECON F1 | 43.03% | 45.57% | -2.53% [-3.01%, -2.07%] | Unreliable CI (n=3 clusters) |
+| `coordinate_median` vs `fedavg` | RECON F1 | 43.03% | 6.34% | +36.69% [+25.80%, +43.04%] | Unreliable CI (n=3 clusters) |
+| `coordinate_median` vs `fedavg` | ASR | 14.21% | 28.95% | -14.74% [-20.00%, -7.09%] | Unreliable CI (n=3 clusters) |
+| `coordinate_median` vs `fedavg` | Macro-F1 | 47.29% | 44.64% | +2.64% [+1.53%, +3.93%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` (Atk vs Cln) | Macro-F1 | 44.64% | 49.09% | -4.45% [-6.59%, -2.14%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` (Atk vs Cln) | RECON F1 | 6.34% | 43.98% | -37.64% [-45.53%, -25.67%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `coordinate_median` | RECON F1 | 6.34% | 43.03% | -36.69% [-43.04%, -25.80%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `coordinate_median` | ASR | 28.95% | 14.21% | +14.74% [+7.09%, +20.00%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `coordinate_median` | Macro-F1 | 44.64% | 47.29% | -2.64% [-3.93%, -1.53%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `fedavg` | RECON F1 | 6.34% | 6.34% | +0.00% [+0.00%, +0.00%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `fedavg` | ASR | 28.95% | 28.95% | +0.00% [+0.00%, +0.00%] | Unreliable CI (n=3 clusters) |
+| `detector_log_only` vs `fedavg` | Macro-F1 | 44.64% | 44.64% | +0.00% [+0.00%, +0.00%] | Unreliable CI (n=3 clusters) |
+| `fedavg` (Atk vs Cln) | Macro-F1 | 44.64% | 49.09% | -4.45% [-6.59%, -2.14%] | Unreliable CI (n=3 clusters) |
+| `fedavg` (Atk vs Cln) | RECON F1 | 6.34% | 43.98% | -37.64% [-45.53%, -25.67%] | Unreliable CI (n=3 clusters) |
+| `fedavg` vs `coordinate_median` | RECON F1 | 6.34% | 43.03% | -36.69% [-43.04%, -25.80%] | Unreliable CI (n=3 clusters) |
+| `fedavg` vs `coordinate_median` | ASR | 28.95% | 14.21% | +14.74% [+7.09%, +20.00%] | Unreliable CI (n=3 clusters) |
+| `fedavg` vs `coordinate_median` | Macro-F1 | 44.64% | 47.29% | -2.64% [-3.93%, -1.53%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` (Atk vs Cln) | Macro-F1 | 45.02% | 47.67% | -2.64% [-2.77%, -2.45%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` (Atk vs Cln) | RECON F1 | 19.84% | 43.67% | -23.83% [-26.87%, -19.15%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `coordinate_median` | RECON F1 | 19.84% | 43.03% | -23.19% [-25.72%, -18.92%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `coordinate_median` | ASR | 22.97% | 14.21% | +8.76% [+3.34%, +11.80%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `coordinate_median` | Macro-F1 | 45.02% | 47.29% | -2.27% [-3.12%, -1.09%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `fedavg` | RECON F1 | 19.84% | 6.34% | +13.50% [+6.87%, +18.12%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `fedavg` | ASR | 22.97% | 28.95% | -5.99% [-13.79%, +4.71%] | Unreliable CI (n=3 clusters) |
+| `fixed_e4_1` vs `fedavg` | Macro-F1 | 45.02% | 44.64% | +0.38% [-1.06%, +1.39%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` (Atk vs Cln) | Macro-F1 | 47.55% | 47.98% | -0.43% [-0.66%, -0.07%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` (Atk vs Cln) | RECON F1 | 44.70% | 44.26% | +0.44% [-0.18%, +1.49%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `coordinate_median` | RECON F1 | 44.70% | 43.03% | +1.67% [-0.08%, +3.61%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `coordinate_median` | ASR | 11.91% | 14.21% | -2.30% [-5.02%, +0.14%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `coordinate_median` | Macro-F1 | 47.55% | 47.29% | +0.26% [-1.01%, +2.29%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `fedavg` | RECON F1 | 44.70% | 6.34% | +38.36% [+27.27%, +46.66%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `fedavg` | ASR | 11.91% | 28.95% | -17.05% [-25.02%, -6.96%] | Unreliable CI (n=3 clusters) |
+| `fixed_no_norm_scaling` vs `fedavg` | Macro-F1 | 47.55% | 44.64% | +2.90% [+1.03%, +4.76%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` (Atk vs Cln) | Macro-F1 | 46.90% | 47.08% | -0.18% [-1.47%, +0.47%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` (Atk vs Cln) | RECON F1 | 44.93% | 45.22% | -0.29% [-1.98%, +0.69%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `coordinate_median` | RECON F1 | 44.93% | 43.03% | +1.90% [-0.20%, +3.44%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `coordinate_median` | ASR | 14.44% | 14.21% | +0.23% [-0.81%, +0.88%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `coordinate_median` | Macro-F1 | 46.90% | 47.29% | -0.39% [-1.96%, +1.10%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `fedavg` | RECON F1 | 44.93% | 6.34% | +38.59% [+25.60%, +45.50%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `fedavg` | ASR | 14.44% | 28.95% | -14.52% [-19.39%, -6.21%] | Unreliable CI (n=3 clusters) |
+| `hybrid_median` vs `fedavg` | Macro-F1 | 46.90% | 44.64% | +2.26% [-0.42%, +3.62%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` (Atk vs Cln) | Macro-F1 | 46.64% | 47.27% | -0.64% [-2.01%, +0.26%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` (Atk vs Cln) | RECON F1 | 43.22% | 45.11% | -1.90% [-8.66%, +1.83%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `coordinate_median` | RECON F1 | 43.22% | 43.03% | +0.18% [-6.76%, +4.07%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `coordinate_median` | ASR | 14.42% | 14.21% | +0.21% [-3.29%, +6.50%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `coordinate_median` | Macro-F1 | 46.64% | 47.29% | -0.65% [-2.08%, +0.59%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `fedavg` | RECON F1 | 43.22% | 6.34% | +36.87% [+19.04%, +46.29%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `fedavg` | ASR | 14.42% | 28.95% | -14.53% [-22.58%, -0.60%] | Unreliable CI (n=3 clusters) |
+| `hybrid_trimmed` vs `fedavg` | Macro-F1 | 46.64% | 44.64% | +1.99% [+1.08%, +3.06%] | Unreliable CI (n=3 clusters) |
+| `krum` (Atk vs Cln) | Macro-F1 | 44.41% | 44.59% | -0.18% [-1.91%, +2.78%] | Unreliable CI (n=3 clusters) |
+| `krum` (Atk vs Cln) | RECON F1 | 44.86% | 44.65% | +0.20% [-0.49%, +1.30%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `coordinate_median` | RECON F1 | 44.86% | 43.03% | +1.82% [+0.60%, +3.38%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `coordinate_median` | ASR | 11.34% | 14.21% | -2.87% [-5.25%, +0.28%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `coordinate_median` | Macro-F1 | 44.41% | 47.29% | -2.88% [-4.05%, -2.11%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `fedavg` | RECON F1 | 44.86% | 6.34% | +38.51% [+26.40%, +44.61%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `fedavg` | ASR | 11.34% | 28.95% | -17.61% [-25.25%, -10.74%] | Unreliable CI (n=3 clusters) |
+| `krum` vs `fedavg` | Macro-F1 | 44.41% | 44.64% | -0.24% [-2.52%, +1.45%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` (Atk vs Cln) | Macro-F1 | 47.67% | 49.09% | -1.42% [-3.25%, +0.03%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` (Atk vs Cln) | RECON F1 | 42.09% | 43.98% | -1.89% [-5.73%, +0.53%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `coordinate_median` | RECON F1 | 42.09% | 43.03% | -0.94% [-3.25%, +0.40%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `coordinate_median` | ASR | 11.84% | 14.21% | -2.37% [-4.68%, +1.91%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `coordinate_median` | Macro-F1 | 47.67% | 47.29% | +0.38% [-1.76%, +3.07%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `fedavg` | RECON F1 | 42.09% | 6.34% | +35.75% [+26.20%, +41.24%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `fedavg` | ASR | 11.84% | 28.95% | -17.11% [-21.47%, -11.77%] | Unreliable CI (n=3 clusters) |
+| `oracle_d1` vs `fedavg` | Macro-F1 | 47.67% | 44.64% | +3.03% [+1.37%, +5.54%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` (Atk vs Cln) | Macro-F1 | 46.01% | 47.69% | -1.69% [-2.54%, -0.38%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` (Atk vs Cln) | RECON F1 | 32.99% | 45.60% | -12.61% [-17.37%, -9.36%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `coordinate_median` | RECON F1 | 32.99% | 43.03% | -10.04% [-14.64%, -6.83%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `coordinate_median` | ASR | 18.61% | 14.21% | +4.40% [+2.48%, +7.94%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `coordinate_median` | Macro-F1 | 46.01% | 47.29% | -1.28% [-1.60%, -0.95%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `fedavg` | RECON F1 | 32.99% | 6.34% | +26.65% [+18.96%, +34.39%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `fedavg` | ASR | 18.61% | 28.95% | -10.34% [-14.36%, -4.61%] | Unreliable CI (n=3 clusters) |
+| `trimmed_mean` vs `fedavg` | Macro-F1 | 46.01% | 44.64% | +1.36% [-0.06%, +2.98%] | Unreliable CI (n=3 clusters) |
 
 ## 5. Appendix: Per-Simulation Telemetry Table
 | Mode | Condition | Partition | Train Seed | Macro-F1 (%) | RECON F1 (%) | ASR (%) | Honest Quar (k/n) | Atk Det Quar (k/n) | Wall Time (s) |
