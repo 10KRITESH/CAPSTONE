@@ -63,11 +63,12 @@ class FLClient:
         self.num_samples = len(self.df_raw)
 
         # Pre-cache clean tensors and class weights to avoid per-round DataFrame conversions
-        self._X_clean = torch.from_numpy(self.df_raw[self.feature_cols].to_numpy(dtype="float32").copy())
-        self._y_clean = torch.from_numpy(self.df_raw["label"].to_numpy(dtype="int64").copy())
+        self._X_clean = torch.from_numpy(self.df_raw[self.feature_cols].to_numpy(dtype="float32").copy()).to(self.device)
+        self._y_clean = torch.from_numpy(self.df_raw["label"].to_numpy(dtype="int64").copy()).to(self.device)
         class_counts = torch.bincount(self._y_clean, minlength=self.num_classes).float()
         cw = 1.0 / (class_counts + 1.0)
-        self._class_weights_clean = cw / cw.mean()
+        self._class_weights_clean = (cw / cw.mean()).to(self.device)
+        self._local_model: IDS_MLP | None = None
 
     def train_local(
         self,
@@ -99,11 +100,11 @@ class FLClient:
             df_train = self.attack.poison_data(self.df_raw, round_num=round_num)
             X_np = df_train[self.feature_cols].to_numpy(dtype="float32").copy()
             y_np = df_train["label"].to_numpy(dtype="int64").copy()
-            X_tensor = torch.from_numpy(X_np)
-            y_tensor = torch.from_numpy(y_np)
+            X_tensor = torch.from_numpy(X_np).to(self.device)
+            y_tensor = torch.from_numpy(y_np).to(self.device)
             class_counts = torch.bincount(y_tensor, minlength=self.num_classes).float()
             cw = 1.0 / (class_counts + 1.0)
-            class_weights = cw / cw.mean()
+            class_weights = (cw / cw.mean()).to(self.device)
         else:
             X_tensor = self._X_clean
             y_tensor = self._y_clean
@@ -117,13 +118,21 @@ class FLClient:
             generator=generator,
         )
 
-        # 3. Instantiate local model initialized with global weights
-        local_model = IDS_MLP(**global_model.config).to(self.device)
+        # 3. Instantiate local model initialized with global weights (reuse buffer if available)
+        if self._local_model is None:
+            self._local_model = IDS_MLP(**global_model.config).to(self.device)
+        local_model = self._local_model
         local_model.load_state_dict(global_model.state_dict())
-        global_weights = {k: v.clone().detach() for k, v in global_model.state_dict().items()}
+        global_weights = global_model.state_dict()
 
-        optimizer = torch.optim.Adam(local_model.parameters(), lr=lr, weight_decay=weight_decay)
-        criterion = nn.CrossEntropyLoss(weight=class_weights.to(self.device))
+        try:
+            optimizer = torch.optim.Adam(
+                local_model.parameters(), lr=lr, weight_decay=weight_decay,
+                fused=(self.device.type == "cuda")
+            )
+        except TypeError:
+            optimizer = torch.optim.Adam(local_model.parameters(), lr=lr, weight_decay=weight_decay)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
         # 4. Local epoch training loop
         local_model.train()
@@ -133,7 +142,6 @@ class FLClient:
 
         for epoch in range(local_epochs):
             for X_b, y_b in loader:
-                X_b, y_b = X_b.to(self.device), y_b.to(self.device)
                 optimizer.zero_grad(set_to_none=True)
                 logits = local_model(X_b)
                 loss = criterion(logits, y_b)
@@ -147,12 +155,12 @@ class FLClient:
         avg_loss = total_loss / max(1, total)
         accuracy = correct / max(1, total)
 
-        # 5. Compute update: Δ_i = w_local - w_global (for floating-point parameters)
+        # 5. Compute update: Δ_i = w_local - w_global (computed on device before CPU transfer)
         local_weights = local_model.state_dict()
         update = {}
-        for k in global_weights.keys():
-            if torch.is_floating_point(global_weights[k]):
-                update[k] = (local_weights[k].cpu() - global_weights[k].cpu())
+        for k, v_glob in global_weights.items():
+            if torch.is_floating_point(v_glob):
+                update[k] = (local_weights[k] - v_glob).cpu()
             else:
                 update[k] = local_weights[k].cpu()
 
