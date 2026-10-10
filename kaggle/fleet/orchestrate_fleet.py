@@ -66,6 +66,8 @@ def push_kernel(part_dir: str) -> bool:
 
 
 def pull_shard_output(slug: str, out_dir: Path) -> Path:
+    if out_dir.exists():
+        shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     log.info(f"Pulling output from {slug} into {out_dir}...")
     cmd = [KAGGLE_BIN, "kernels", "output", slug, "-p", str(out_dir)]
@@ -98,8 +100,8 @@ def main():
     log.info("Dispatching initial fleet: Pushing Part 1 and Part 2 to Kaggle...")
     push_kernel("kaggle/fleet/part1")
     push_kernel("kaggle/fleet/part2")
-    log.info("Initial push complete. Waiting 15s for Kaggle scheduler to register kernels...")
-    time.sleep(15)
+    log.info("Initial push complete. Waiting 25s for Kaggle scheduler to register kernels...")
+    time.sleep(25)
 
     log.info("Starting Fleet Orchestrator Loop...")
     t_start = time.time()

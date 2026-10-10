@@ -1098,3 +1098,10 @@
   - *`hybrid_krum` Aggregation in Coordinator:* Added `hybrid_krum` to `FLCoordinator`. Quarantined clients ($SF = 0.0$) are recorded to the blockchain audit log and excluded, while surviving active clients are aggregated via Multi-Krum ($f = \lfloor 0.20 \cdot |S| \rfloor$). This provides state-machine auditing combined with Multi-Krum's proven resilience under high Byzantine fractions (30%).
   - *Calibrated Defense Integration in Benchmark Harness:* Wired `calibrated_hybrid_median` and `calibrated_hybrid_krum` into `run_phase_e4_2c.py`, dynamically passing calibrated D3 and scaled-norm thresholds to the validator and executing robust median and Multi-Krum aggregation over surviving unquarantined clients. Added both candidates to Step B reference matrix and Step C 6-scenario stress tests across all 15 calibration configurations (931 total fleet simulation runs).
 
+### `kaggle/fleet/orchestrate_fleet.py` (Stale Directory Cleanup & Scheduler Registration)
+- **Purpose:** Autonomous fleet coordinator managing the execution, queueing, and result merging of 3 Kaggle cloud multi-GPU kernels subject to Kaggle's 2-concurrent GPU session limit.
+- **How it fits into overall flow:** Pushes Part 1 and Part 2 kernels, monitors their status via Kaggle CLI, launches Part 3 into the first freed GPU slot, downloads all output archives, merges `runs.jsonl` and telemetry files, and triggers automatic report regeneration.
+- **Block-by-block explanation:**
+  - *Stale Directory Cleanup:* Updated `pull_shard_output` to purge previous output directories using `shutil.rmtree(out_dir, ignore_errors=True)` before creating fresh target directories. In plain language, if a previous run produced zip archives or logs, pulling into an existing directory could leave behind old, conflicting run records. Purging the target ensures that only freshly produced cloud GPU benchmark artifacts are processed.
+  - *Scheduler Registration Delay:* Increased the post-push delay from 15s to 25s to ensure Kaggle's backend scheduler has registered newly pushed kernel versions and moved them into the queued/running state before status polling begins.
+
