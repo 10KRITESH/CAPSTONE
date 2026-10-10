@@ -101,6 +101,7 @@ trust:
     adversarial_cosine_threshold: -0.60 # Critical inverted cosine threshold
     norm_z_extreme_threshold: 15.0      # Outlier MAD Z-score threshold
     norm_z_anomaly_threshold: 1.8       # Scaled norm anomaly threshold when coupled with angular/impact skew
+    scaled_norm_z_thresh: 1.85          # Calibrated scaled norm Z threshold when sample scaling is active
     global_degradation_threshold: -0.05 # Validation macro-F1 drop for GLOBAL_DEGRADATION
     target_class_degradation_threshold: -0.05 # Meaningful per-class F1 drop threshold
     target_class_min_base_f1: 0.15      # Minimum baseline F1 for per-class degradation check
@@ -109,8 +110,9 @@ trust:
     variant: "D0"                       # options: D0 | D1 | D2 | D3
     d1_min_support: 100                 # ORACLE: minimum samples for class to evaluate target degradation
     d2_z_thresh: 3.0                    # Peer-relative MAD Z-score threshold (absolute value)
-    d3_calibrated_z_thresh: null        # Calibrated z threshold from calibration seeds
-    d3_calibrated_impact_thresh: null   # Calibrated impact threshold from calibration seeds
+    d3_calibrated_z_thresh: 1.80        # Calibrated z threshold from calibration seeds
+    d3_calibrated_impact_thresh: -0.025 # Calibrated impact threshold from calibration seeds
+    d3_calibrated_energy_gate: 0.15     # Calibrated head energy share gate for stealthy label flips
     mad_floor: 0.015                    # Robust scale floor preventing micro-noise from inflating peer Z
     energy_share_gate: 0.40             # Minimum head energy share to confirm concentrated targeted class steering
     norm_scale_power: 0.585             # Calibrated power scaling eliminating sample-count Spearman correlation

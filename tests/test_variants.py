@@ -266,6 +266,58 @@ class TestDetectorVariants(unittest.TestCase):
             diff = torch.max(torch.abs(dict_fedavg[k] - dict_logonly[k])).item()
             self.assertLess(diff, 1e-6, f"Layer {k} differed between detector_log_only and fedavg by {diff} >= 1e-6!")
 
+    def test_coordinator_hybrid_median_and_trimmed(self):
+        """FLCoordinator executes hybrid_median and hybrid_trimmed successfully."""
+        from src.federation.coordinator import FLCoordinator
+        import copy
+        import yaml
+        import tempfile
+        from pathlib import Path
+
+        with open("configs/default.yaml") as f:
+            cfg = yaml.safe_load(f)
+
+        class DummyClient:
+            def __init__(self, cid, updates_dict):
+                self.client_id = cid
+                self.attack = None
+                self._update = updates_dict
+
+            def train_local(self, **kwargs):
+                return copy.deepcopy(self._update), 1000, {"loss": 0.5, "accuracy": 0.9}
+
+        fixed_updates = [{k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()} for _ in range(3)]
+        clients_med = [DummyClient(i, fixed_updates[i]) for i in range(3)]
+        clients_trim = [DummyClient(i, fixed_updates[i]) for i in range(3)]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_p = Path(tmp_dir)
+            coord_med = FLCoordinator(
+                config=cfg,
+                clients=clients_med,
+                server_val_ds=self.val_loader.dataset,
+                test_ds=self.val_loader.dataset,
+                aggregation_method="hybrid_median",
+                device=self.device,
+                db_path=str(tmp_p / "audit_med.db"),
+                ledger_path=str(tmp_p / "ledger_med.json"),
+            )
+            res_med = coord_med.run_round(round_num=1)
+            self.assertIn("val_macro_f1", res_med)
+
+            coord_trim = FLCoordinator(
+                config=cfg,
+                clients=clients_trim,
+                server_val_ds=self.val_loader.dataset,
+                test_ds=self.val_loader.dataset,
+                aggregation_method="hybrid_trimmed",
+                device=self.device,
+                db_path=str(tmp_p / "audit_trim.db"),
+                ledger_path=str(tmp_p / "ledger_trim.json"),
+            )
+            res_trim = coord_trim.run_round(round_num=1)
+            self.assertIn("val_macro_f1", res_trim)
+
     def test_sample_scaled_norm_discrimination(self):
         """Flaw 2: Sample-scaled norms normalize update rates by sqrt(n_i), preventing dataset-size bias."""
         validator = UpdateValidator(
@@ -527,6 +579,39 @@ class TestDetectorVariants(unittest.TestCase):
         self.assertEqual(v_base.d2_z_thresh, 3.0)
         self.assertEqual(v_strict.d2_z_thresh, 2.0)
         self.assertNotEqual(v_base.d2_z_thresh, v_strict.d2_z_thresh)
+
+    def test_d3_calibrated_thresholds_defaults(self):
+        """D3 applies pre-calibrated empirical thresholds (z=1.80, impact=-0.025, energy=0.15)."""
+        v_d3 = UpdateValidator(self.val_loader, self.class_names, self.device, detector_variant="D3")
+        self.assertEqual(v_d3.detector_variant, "D3")
+        self.assertEqual(v_d3.d3_calibrated_z_thresh, 1.80)
+        self.assertEqual(v_d3.d3_calibrated_impact_thresh, -0.025)
+        self.assertEqual(v_d3.d3_calibrated_energy_gate, 0.15)
+        self.assertEqual(v_d3.scaled_norm_z_thresh, 1.85)
+
+    def test_scaled_norm_outlier_detection(self):
+        """Under sample-norm scaling, an outlier update with |z| > 1.85 triggers ABNORMAL_UPDATE_NORM."""
+        validator = UpdateValidator(
+            self.val_loader,
+            self.class_names,
+            self.device,
+            detector_variant="D3",
+            norm_scale_power=0.585,
+            scaled_norm_z_thresh=1.85,
+        )
+        # Client 0 has large update, clients 1-4 have small updates
+        u0 = {k: torch.randn_like(v) * 0.10 for k, v in self.global_model.state_dict().items()}
+        u_rest = [{k: torch.randn_like(v) * 0.01 for k, v in self.global_model.state_dict().items()} for _ in range(4)]
+        updates = [u0] + u_rest
+        c_ids = list(range(5))
+        sample_counts = [1000] * 5
+
+        res = validator.validate_updates(
+            self.global_model, updates, c_ids, round_num=1, sample_counts=sample_counts
+        )
+        self.assertGreater(abs(res[0].norm_z_score), 1.85)
+        self.assertIn("ABNORMAL_UPDATE_NORM", res[0].suspicious_flags)
+
 
 
 class TestRootResultsProtection(unittest.TestCase):

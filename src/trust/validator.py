@@ -64,6 +64,8 @@ class UpdateValidator:
         d2_z_thresh: float | None = None,
         d3_calibrated_z_thresh: float | None = None,
         d3_calibrated_impact_thresh: float | None = None,
+        d3_calibrated_energy_gate: float | None = None,
+        scaled_norm_z_thresh: float | None = None,
         oracle_client_support: dict[str | int, dict[str, int]] | None = None,
         mad_floor: float | None = None,
         energy_share_gate: float | None = None,
@@ -84,6 +86,11 @@ class UpdateValidator:
         self.cosine_threshold = ev_cfg.get("cosine_threshold", -0.50)
         self.norm_z_extreme = ev_cfg.get("norm_z_extreme_threshold", 15.0)
         self.norm_z_anomaly = ev_cfg.get("norm_z_anomaly_threshold", 1.8)
+        self.scaled_norm_z_thresh = (
+            scaled_norm_z_thresh
+            if scaled_norm_z_thresh is not None
+            else ev_cfg.get("scaled_norm_z_thresh", 1.85)
+        )
         self.global_degradation_thresh = ev_cfg.get("global_degradation_threshold", -0.05)
         self.target_class_degradation_thresh = (
             target_class_degradation_thresh
@@ -97,8 +104,21 @@ class UpdateValidator:
         self.detector_variant = detector_variant or det_cfg.get("variant", "D0")
         self.d1_min_support = d1_min_support if d1_min_support is not None else det_cfg.get("d1_min_support", 100)
         self.d2_z_thresh = d2_z_thresh if d2_z_thresh is not None else det_cfg.get("d2_z_thresh", 3.0)
-        self.d3_calibrated_z_thresh = d3_calibrated_z_thresh if d3_calibrated_z_thresh is not None else det_cfg.get("d3_calibrated_z_thresh", None)
-        self.d3_calibrated_impact_thresh = d3_calibrated_impact_thresh if d3_calibrated_impact_thresh is not None else det_cfg.get("d3_calibrated_impact_thresh", None)
+        self.d3_calibrated_z_thresh = (
+            d3_calibrated_z_thresh
+            if d3_calibrated_z_thresh is not None
+            else (det_cfg.get("d3_calibrated_z_thresh") if det_cfg.get("d3_calibrated_z_thresh") is not None else 1.80)
+        )
+        self.d3_calibrated_impact_thresh = (
+            d3_calibrated_impact_thresh
+            if d3_calibrated_impact_thresh is not None
+            else (det_cfg.get("d3_calibrated_impact_thresh") if det_cfg.get("d3_calibrated_impact_thresh") is not None else -0.025)
+        )
+        self.d3_calibrated_energy_gate = (
+            d3_calibrated_energy_gate
+            if d3_calibrated_energy_gate is not None
+            else (det_cfg.get("d3_calibrated_energy_gate") if det_cfg.get("d3_calibrated_energy_gate") is not None else 0.15)
+        )
         self.oracle_client_support = oracle_client_support
         self.mad_floor = mad_floor if mad_floor is not None else det_cfg.get("mad_floor", 0.015)
         self.energy_share_gate = energy_share_gate if energy_share_gate is not None else det_cfg.get("energy_share_gate", 0.40)
@@ -365,10 +385,24 @@ class UpdateValidator:
             flags = []
             if cos_sim < cohort_cos_floor:
                 flags.append("LOW_COSINE_SIMILARITY")
-            if (abs(z_score) > self.norm_z_extreme) or (
-                z_score > self.norm_z_anomaly and (cos_sim < max(0.20, cohort_cos_floor) or global_impact < -0.02)
-            ):
-                flags.append("ABNORMAL_UPDATE_NORM")
+
+            is_norm_scaled = (
+                sample_counts is not None
+                and len(sample_counts) == len(client_updates)
+                and sum(sample_counts) > 0
+                and self.norm_scale_power > 0.0
+            )
+            if is_norm_scaled:
+                # Calibrated norm Z-scoring: sample-norm scaling eliminates honest variance (std=0.229).
+                # |z| > scaled_norm_z_thresh (1.85) identifies norm-matched or inflated attackers with 0% clean false alarms.
+                if abs(z_score) > self.scaled_norm_z_thresh:
+                    flags.append("ABNORMAL_UPDATE_NORM")
+            else:
+                if (abs(z_score) > self.norm_z_extreme) or (
+                    z_score > self.norm_z_anomaly and (cos_sim < max(0.20, cohort_cos_floor) or global_impact < -0.02)
+                ):
+                    flags.append("ABNORMAL_UPDATE_NORM")
+
             if global_impact < self.global_degradation_thresh:
                 flags.append("GLOBAL_PERFORMANCE_DEGRADATION")
             if c_penalty > self.collusion_flag_thresh:
@@ -405,12 +439,13 @@ class UpdateValidator:
                 elif self.detector_variant == "D3":
                     # Calibrated peer-relative scoring with concentrated support energy gate
                     z = client_peer_z[cls]
-                    z_thresh = self.d3_calibrated_z_thresh if self.d3_calibrated_z_thresh is not None else self.d2_z_thresh
-                    imp_thresh = self.d3_calibrated_impact_thresh if self.d3_calibrated_impact_thresh is not None else self.target_class_degradation_thresh
+                    z_thresh = self.d3_calibrated_z_thresh
+                    imp_thresh = self.d3_calibrated_impact_thresh
+                    energy_gate = self.d3_calibrated_energy_gate
                     c_idx = self.class_names.index(cls) if cls in self.class_names else 0
                     energy_share = ce["head_energy"][c_idx]
                     is_severe_drop = (imp < -0.08)
-                    has_concentrated_energy = (energy_share >= self.energy_share_gate)
+                    has_concentrated_energy = (energy_share >= energy_gate)
                     if imp < imp_thresh and z < -z_thresh:
                         if is_severe_drop or has_concentrated_energy:
                             flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")

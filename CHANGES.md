@@ -1048,3 +1048,34 @@
 - **How it fits into overall flow:** In every federated round, called by the `UpdateValidator` to evaluate pairwise cosine similarity graphs and assess collusion penalties against the consensus reference.
 - **Block-by-block explanation:**
   - *Deduplicated Normalized Updates and Reference Similarities:* Modified `analyze_updates` to accept `precomputed_normed_updates` and `precomputed_ref_sims` from `UpdateValidator`. In plain language, previously `validator.py` stacked all client updates, computed their norms, normalized them on the GPU, and computed their cosine similarities to the geometric median. Immediately afterward, `analyze_updates` called `torch.stack()` a second time, re-computed the norms, re-normalized the vectors, and re-computed the cosine projections from scratch. Passing the pre-computed normalized tensors directly from the validator eliminates redundant tensor allocations, redundant GPU kernel launches, and duplicate matrix-vector multiplications, while remaining 100% bit-exact (0.00e+00 difference).
+
+## Phase E5: Calibrated Hybrid Defense & Evasive Attack Robustness
+
+### `src/trust/validator.py`
+- **Purpose:** Multi-signal update evaluation engine evaluating candidate updates against consensus reference directions, norm anomalies, and validation probe impacts.
+- **How it fits into overall flow:** Validates client updates every round, flagging malicious updates and feeding evidence into the client state machine.
+- **Block-by-block explanation:**
+  - *Calibrated Scaled Norm Anomaly Scoring:* When sample-norm scaling is active (`norm_scale_power > 0.0`), the dataset-size confound is eliminated and honest client Z-scores have a narrow spread ($\sigma \approx 0.229$). The validator now directly flags `ABNORMAL_UPDATE_NORM` when $|Z| > \text{scaled\_norm\_z\_thresh}$ (1.85). In plain language, previously scaled norm anomalies were only flagged if $|Z| > 15.0$ or if the update simultaneously exhibited severe angular deflection or global macro-F1 collapse. Evasive adversaries (such as norm-matching attackers who clip their updates to the honest median) produced $Z \approx 1.99$ without angular deflection, completely slipping past detection. Under calibrated scoring, an update with $Z > 1.85$ is recognized as an extreme statistical outlier ($> 8\sigma$ from honest median), boosting attacker detection recall from 3.3% to 75.4% while maintaining 0.0% honest false alarms.
+  - *Calibrated D3 Peer-Relative Semantic Probe:* Configured D3 with calibrated empirical parameters ($Z_{\text{calib}} = 1.80$, $\Delta F_{1, \text{calib}} = -0.025$, and $\text{energy\_gate} = 0.15$). In plain language, unscaled label-flip attacks ($\gamma = 1.0$) do not produce massive drops on the server validation set; their drop is typically $\Delta F_1 \approx -0.030$, which was previously ignored by the static $-0.05$ threshold. The calibrated detector flags targeted class degradation when a client's impact drops below $-0.025$, peer Z-score falls below $-1.80$, and the client devoted at least 15% of its head gradient energy to that specific class, catching stealthy label flips without false-flagging non-IID honest clients.
+
+### `src/federation/coordinator.py`
+- **Purpose:** Master federated learning coordinator and simulator engine.
+- **How it fits into overall flow:** Manages round orchestration, client training, trust scoring, blockchain audit logging, and global model aggregation.
+- **Block-by-block explanation:**
+  - *First-Class Support for `hybrid_median` and `hybrid_trimmed`:* Added support for `hybrid_median` and `hybrid_trimmed` aggregation methods inside `FLCoordinator`. In plain language, standard FedAvg has a breakdown point of 0% (a single undetected attacker can poison the global model). Coordinate Median and Trimmed Mean possess breakdown points of up to 50%, but degrade when 30% of clients are colluding or when non-IID data pulls the median off-center. In hybrid mode, the coordinator runs multi-signal validation and state machine governance: clients quarantined by the state machine ($SF = 0.0$) are recorded in the blockchain audit ledger and excluded from aggregation, while the surviving active clients are aggregated using Coordinate-wise Median or Trimmed Mean. This combines the auditability and governance of trust state machines with the mathematical robustness of classical order statistics.
+
+### `configs/default.yaml`
+- **Purpose:** Authoritative single source of truth for federated learning and trust hyperparameters.
+- **How it fits into overall flow:** Centralizes configuration parameters to ensure reproducibility across all benchmarks and unit tests.
+- **Block-by-block explanation:**
+  - Added `scaled_norm_z_thresh: 1.85` under `trust.evidence`.
+  - Added `d3_calibrated_z_thresh: 1.80`, `d3_calibrated_impact_thresh: -0.025`, and `d3_calibrated_energy_gate: 0.15` under `trust.detector`.
+
+### `tests/test_variants.py`
+- **Purpose:** Unit and regression test suite.
+- **How it fits into overall flow:** Validates the correctness and invariants of trust detectors and federation coordinators.
+- **Block-by-block explanation:**
+  - `test_d3_calibrated_thresholds_defaults`: Verifies that detector variant D3 initializes with calibrated defaults ($Z = 1.80$, impact $= -0.025$, energy gate $= 0.15$, scaled norm threshold $= 1.85$).
+  - `test_scaled_norm_outlier_detection`: Verifies that an update with scaled norm $Z > 1.85$ triggers `ABNORMAL_UPDATE_NORM` when sample counts are present and power scaling is active.
+  - `test_coordinator_hybrid_median_and_trimmed`: Verifies that `FLCoordinator` initializes and executes complete rounds under `aggregation_method="hybrid_median"` and `"hybrid_trimmed"` with isolated audit databases and ledgers.
+

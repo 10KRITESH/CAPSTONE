@@ -55,7 +55,7 @@ class FLCoordinator:
         clients: List of initialized FLClient instances.
         server_val_ds: CICIoTDataset for server validation set.
         test_ds: CICIoTDataset for overall evaluation.
-        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware' | 'detector_log_only'.
+        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware' | 'detector_log_only' | 'hybrid_median' | 'hybrid_trimmed'.
         device: Compute device (cpu / cuda).
     """
 
@@ -77,6 +77,8 @@ class FLCoordinator:
         d2_z_thresh: float | None = None,
         d3_calibrated_z_thresh: float | None = None,
         d3_calibrated_impact_thresh: float | None = None,
+        d3_calibrated_energy_gate: float | None = None,
+        scaled_norm_z_thresh: float | None = None,
         oracle_client_support: dict | None = None,
         soft_containment: bool | None = None,
     ) -> None:
@@ -127,6 +129,8 @@ class FLCoordinator:
             d2_z_thresh=d2_z_thresh,
             d3_calibrated_z_thresh=d3_calibrated_z_thresh,
             d3_calibrated_impact_thresh=d3_calibrated_impact_thresh,
+            d3_calibrated_energy_gate=d3_calibrated_energy_gate,
+            scaled_norm_z_thresh=scaled_norm_z_thresh,
             oracle_client_support=oracle_client_support,
         )
         self.rep_manager = PerClassReputationManager(self.class_names, config=self.config)
@@ -245,7 +249,7 @@ class FLCoordinator:
         val_time_ms = 0.0
         state_factors = {}
 
-        if self.aggregation_method in ("trust_class_aware", "detector_log_only"):
+        if self.aggregation_method in ("trust_class_aware", "detector_log_only", "hybrid_median", "hybrid_trimmed"):
             # Multi-Signal Validation
             val_results = self.validator.validate_updates(
                 self.global_model, updates, client_ids, round_num, sample_counts=sample_counts
@@ -296,6 +300,21 @@ class FLCoordinator:
             if self.aggregation_method == "detector_log_only":
                 # Plain sample-weighted FedAvg aggregation
                 agg_time_ms = self.aggregate_fedavg(updates, sample_counts)
+            elif self.aggregation_method == "hybrid_median":
+                active_indices = [idx for idx, c_id in enumerate(client_ids) if state_factors.get(c_id, 1.0) > 0.0]
+                if not active_indices:
+                    active_indices = list(range(len(client_ids)))
+                active_updates = [updates[i] for i in active_indices]
+                global_dict, agg_time_ms = aggregate_coordinate_median(active_updates, self.global_model.state_dict())
+                self.global_model.load_state_dict(global_dict)
+            elif self.aggregation_method == "hybrid_trimmed":
+                active_indices = [idx for idx, c_id in enumerate(client_ids) if state_factors.get(c_id, 1.0) > 0.0]
+                if not active_indices:
+                    active_indices = list(range(len(client_ids)))
+                active_updates = [updates[i] for i in active_indices]
+                b = 0.20 if len(active_updates) >= 5 else 0.10
+                global_dict, agg_time_ms = aggregate_trimmed_mean(active_updates, self.global_model.state_dict(), beta=b)
+                self.global_model.load_state_dict(global_dict)
             else:
                 # Perform Class-Aware Trust Aggregation
                 global_dict, agg_time_ms = aggregate_trust_class_aware(
