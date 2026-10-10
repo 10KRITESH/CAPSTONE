@@ -55,7 +55,7 @@ class FLCoordinator:
         clients: List of initialized FLClient instances.
         server_val_ds: CICIoTDataset for server validation set.
         test_ds: CICIoTDataset for overall evaluation.
-        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware' | 'detector_log_only' | 'hybrid_median' | 'hybrid_trimmed'.
+        aggregation_method: 'fedavg' | 'krum' | 'trimmed_mean' | 'median' | 'trust_class_aware' | 'detector_log_only' | 'hybrid_median' | 'hybrid_trimmed' | 'hybrid_krum'.
         device: Compute device (cpu / cuda).
     """
 
@@ -249,7 +249,7 @@ class FLCoordinator:
         val_time_ms = 0.0
         state_factors = {}
 
-        if self.aggregation_method in ("trust_class_aware", "detector_log_only", "hybrid_median", "hybrid_trimmed"):
+        if self.aggregation_method in ("trust_class_aware", "detector_log_only", "hybrid_median", "hybrid_trimmed", "hybrid_krum"):
             # Multi-Signal Validation
             val_results = self.validator.validate_updates(
                 self.global_model, updates, client_ids, round_num, sample_counts=sample_counts
@@ -314,6 +314,14 @@ class FLCoordinator:
                 active_updates = [updates[i] for i in active_indices]
                 b = 0.20 if len(active_updates) >= 5 else 0.10
                 global_dict, agg_time_ms = aggregate_trimmed_mean(active_updates, self.global_model.state_dict(), beta=b)
+                self.global_model.load_state_dict(global_dict)
+            elif self.aggregation_method == "hybrid_krum":
+                active_indices = [idx for idx, c_id in enumerate(client_ids) if state_factors.get(c_id, 1.0) > 0.0]
+                if not active_indices:
+                    active_indices = list(range(len(client_ids)))
+                active_updates = [updates[i] for i in active_indices]
+                f_krum = max(1, int(len(active_updates) * 0.20))
+                global_dict, agg_time_ms = aggregate_krum(active_updates, self.global_model.state_dict(), f=f_krum)
                 self.global_model.load_state_dict(global_dict)
             else:
                 # Perform Class-Aware Trust Aggregation

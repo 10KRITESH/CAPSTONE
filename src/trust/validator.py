@@ -430,10 +430,9 @@ class UpdateValidator:
                     z = client_peer_z[cls]
                     c_idx = self.class_names.index(cls) if cls in self.class_names else 0
                     energy_share = ce["head_energy"][c_idx]
-                    is_severe_drop = (imp < -0.08)
                     has_concentrated_energy = (energy_share >= self.energy_share_gate)
                     if imp < self.target_class_degradation_thresh and z < -self.d2_z_thresh:
-                        if is_severe_drop or has_concentrated_energy:
+                        if has_concentrated_energy:
                             flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
                 elif self.detector_variant == "D3":
@@ -444,10 +443,9 @@ class UpdateValidator:
                     energy_gate = self.d3_calibrated_energy_gate
                     c_idx = self.class_names.index(cls) if cls in self.class_names else 0
                     energy_share = ce["head_energy"][c_idx]
-                    is_severe_drop = (imp < -0.08)
                     has_concentrated_energy = (energy_share >= energy_gate)
                     if imp < imp_thresh and z < -z_thresh:
-                        if is_severe_drop or has_concentrated_energy:
+                        if has_concentrated_energy:
                             flags.append(f"TARGET_CLASS_DEGRADATION_{cls}")
 
             elapsed_ms = (time.time() - t0) * 1000.0 / max(1, len(client_updates))

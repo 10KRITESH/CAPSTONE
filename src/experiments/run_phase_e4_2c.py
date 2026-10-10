@@ -262,7 +262,8 @@ def run_simulation(
     # Trust Engine setup
     has_validator = defense_type in (
         "legacy_d0", "fixed", "fixed_e4", "fixed_e4_1", "d2_z3", "detector_log_only",
-        "fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed"
+        "fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed",
+        "calibrated_hybrid_median", "calibrated_hybrid_trimmed"
     ) or defense_type.startswith("ablation_") or defense_type.startswith("sweep_")
 
     validator = None
@@ -275,19 +276,22 @@ def run_simulation(
         is_e4_init = (defense_type == "fixed_e4")
         is_c5 = defense_type in ("fixed_no_norm_scaling", "c5b_no_norm_z", "hybrid_median", "hybrid_trimmed", "detector_log_only")
         is_c5b = (defense_type == "c5b_no_norm_z" or custom_params.get("no_norm_z", False))
+        is_calibrated = (defense_type in ("calibrated_hybrid_median", "calibrated_hybrid_trimmed") or custom_params.get("calibrated", False))
 
-        det_variant = custom_params.get("detector_variant", "D0" if is_legacy else "D2")
+        det_variant = custom_params.get("detector_variant", "D0" if is_legacy else ("D3" if is_calibrated else "D2"))
         d2_z = custom_params.get("d2_z_thresh", 3.0)
         mad_f = custom_params.get("mad_floor", 1e-5 if is_legacy else 0.015)
-        energy_gate = custom_params.get("energy_share_gate", 0.0 if is_legacy else (0.04 if is_e4_init else 0.40))
+        energy_gate = custom_params.get("energy_share_gate", 0.0 if is_legacy else (0.15 if is_calibrated else (0.04 if is_e4_init else 0.40)))
         norm_power = custom_params.get(
             "norm_scale_power",
-            0.0 if (is_legacy or custom_params.get("no_norm_scaling") or is_c5)
-            else (0.50 if is_e4_init else 0.585)
+            0.585 if is_calibrated else (
+                0.0 if (is_legacy or custom_params.get("no_norm_scaling") or is_c5)
+                else (0.50 if is_e4_init else 0.585)
+            )
         )
         probe_thresh = custom_params.get(
             "target_class_degradation_threshold",
-            -0.025 if (is_legacy or is_e4_init or custom_params.get("probe_thresh_0025")) else -0.05
+            -0.025 if (is_legacy or is_e4_init or is_calibrated or custom_params.get("probe_thresh_0025")) else -0.05
         )
         probation_th = custom_params.get("probation_threshold", 0.40)
         quarantine_th = custom_params.get("quarantine_threshold", 0.70)
@@ -303,6 +307,10 @@ def run_simulation(
             device=device,
             detector_variant=det_variant,
             d2_z_thresh=d2_z,
+            d3_calibrated_z_thresh=custom_params.get("d3_calibrated_z_thresh", 1.80 if is_calibrated else None),
+            d3_calibrated_impact_thresh=custom_params.get("d3_calibrated_impact_thresh", -0.025 if is_calibrated else None),
+            d3_calibrated_energy_gate=custom_params.get("d3_calibrated_energy_gate", 0.15 if is_calibrated else None),
+            scaled_norm_z_thresh=custom_params.get("scaled_norm_z_thresh", 1.85 if is_calibrated else None),
             mad_floor=mad_f,
             energy_share_gate=energy_gate,
             norm_scale_power=norm_power,
@@ -639,7 +647,7 @@ def run_simulation(
             new_state, _ = aggregate_coordinate_median(client_updates, global_model.state_dict())
             global_model.load_state_dict(new_state)
 
-        elif defense_type == "hybrid_median":
+        elif defense_type in ("hybrid_median", "calibrated_hybrid_median"):
             active_cids = [i for i in range(10) if state_factors[i] > 0.0]
             if not active_cids:
                 active_cids = list(range(10))
@@ -651,7 +659,7 @@ def run_simulation(
             new_state, _ = aggregate_trimmed_mean(client_updates, global_model.state_dict(), beta=0.20)
             global_model.load_state_dict(new_state)
 
-        elif defense_type == "hybrid_trimmed":
+        elif defense_type in ("hybrid_trimmed", "calibrated_hybrid_trimmed"):
             active_cids = [i for i in range(10) if state_factors[i] > 0.0]
             if not active_cids:
                 active_cids = list(range(10))

@@ -1079,3 +1079,22 @@
   - `test_scaled_norm_outlier_detection`: Verifies that an update with scaled norm $Z > 1.85$ triggers `ABNORMAL_UPDATE_NORM` when sample counts are present and power scaling is active.
   - `test_coordinator_hybrid_median_and_trimmed`: Verifies that `FLCoordinator` initializes and executes complete rounds under `aggregation_method="hybrid_median"` and `"hybrid_trimmed"` with isolated audit databases and ledgers.
 
+### `src/trust/validator.py` (Energy Gate Strict Enforcement)
+- **Purpose:** Identifies malicious updates targeting specific network traffic attack classes during model validation.
+- **How it fits into overall flow:** In every round, measures the validation impact of each client update per class and flags updates that disproportionately degrade performance.
+- **Block-by-block explanation:**
+  - *Strict Energy Gate Requirement:* Removed the `or is_severe_drop` bypass on lines 435 and 449, enforcing that `has_concentrated_energy` must be True to flag a target class degradation in D2 and D3 detectors. In plain language, under Dirichlet non-IID partitions, an honest client might have 50,000 DDoS records and only 2 WebApp records in its local dataset. When that honest update is applied to the global model, the validation F1 score on WebApp naturally drops by 7–8% because the client has virtually no knowledge of WebApp. Previously, any drop below -0.08 was tagged as a "severe drop" and bypassed the gradient energy check entirely, causing innocent clients to be falsely flagged as targeted attackers. By strictly requiring concentrated gradient energy, the detector checks whether the client actually spent model capacity actively altering the target class boundary, completely eliminating clean false alarms.
+
+### `src/trust/evidence.py` (EWMA Reputation Filter Restoration)
+- **Purpose:** Accumulates behavioral evidence scores across rounds to decide whether a client update is suspicious or adversarial.
+- **How it fits into overall flow:** Evaluates per-round validator flags, combines them with historical reputations, and outputs an integer `is_bad` indicator to feed the state machine.
+- **Block-by-block explanation:**
+  - *Restoration of Reputation Low-Pass Filter:* Removed `or has_class_flags` from the `is_bad` condition on line 98, requiring `has_flagged_class_drop` ($R_{i, c} < 0.40$) instead. In plain language, client training updates on non-IID data can experience single-round random fluctuations or noisy validation drops on minority classes. The EWMA reputation system acts as a low-pass filter: a single noisy round does not immediately condemn a client; only repeated drops that depress the exponential moving average reputation below 0.40 indicate persistent adversarial manipulation. Removing the raw single-round flag bypass ensures that temporal smoothing works as designed and prevents transient non-IID noise from accumulating state machine strikes against honest clients.
+
+### `src/federation/coordinator.py` & `src/experiments/run_phase_e4_2c.py` (Hybrid Krum & Calibrated Experiments)
+- **Purpose:** Orchestrates federated rounds and multi-GPU benchmark simulations with resilient aggregation.
+- **How it fits into overall flow:** Dispatches simulations across workers and combines multi-signal governance with robust rank aggregators.
+- **Block-by-block explanation:**
+  - *`hybrid_krum` Aggregation in Coordinator:* Added `hybrid_krum` to `FLCoordinator`. Quarantined clients ($SF = 0.0$) are recorded to the blockchain audit log and excluded, while surviving active clients are aggregated via Multi-Krum ($f = \lfloor 0.20 \cdot |S| \rfloor$). This provides state-machine auditing combined with Multi-Krum's proven resilience under high Byzantine fractions (30%).
+  - *Calibrated Defense Integration in Benchmark Harness:* Wired `calibrated_hybrid_median` and `calibrated_hybrid_trimmed` into `run_phase_e4_2c.py`, dynamically passing calibrated D3 and scaled-norm thresholds to the validator and executing robust median / trimmed mean over surviving unquarantined clients.
+

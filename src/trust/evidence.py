@@ -95,7 +95,7 @@ class TemporalEvidenceTracker:
         )
 
         if past_observation:
-            is_bad = 1 if (has_critical_flags or has_class_flags or has_overall_low_rep or has_flagged_class_drop) else 0
+            is_bad = 1 if (has_critical_flags or has_overall_low_rep or has_flagged_class_drop) else 0
         else:
             is_bad = 1 if has_critical_flags else 0
 
