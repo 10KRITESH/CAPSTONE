@@ -1138,11 +1138,13 @@
 - **Block-by-block explanation:**
   - *Inference Mode Acceleration:* Replaced `torch.no_grad()` with `torch.inference_mode()` across `fast_evaluate`, local-to-global parameter copying, and update delta extraction. In plain language, while `torch.no_grad()` prevents gradient accumulation, PyTorch still tracks tensor version counters and view relationships in case tensors are later used in backward graphs. `torch.inference_mode()` completely disables all view and version tracking, removing internal C++ bookkeeping overhead and executing raw tensor arithmetic at maximum speed.
 
-#### `kaggle/fleet/orchestrate_fleet.py` (First-Class 2-Shard Execution Mode)
-- **Purpose:** Eliminates odd-shard idle GPU slot latency during cloud runs.
-- **How it fits into overall flow:** Adds `--shards 2` CLI argument, coordinating parallel execution of Part 1 and Part 2 simultaneously with zero queuing delay.
+#### `kaggle/fleet/orchestrate_fleet.py` (First-Class 2-Shard Execution Mode & Auto-Attach Fix)
+- **Purpose:** Eliminates odd-shard idle GPU slot latency during cloud runs and provides seamless attachment to already-running fleet shards.
+- **How it fits into overall flow:** Adds `--shards 2` CLI argument and auto-detects active remote kernel statuses when attaching with `--skip-initial-push`.
 - **Block-by-block explanation:**
   - *2-Shard Termination & Merging:* Added logic allowing the orchestrator to monitor only Part 1 and Part 2, immediately breaking the polling loop and downloading outputs the moment both finish, completely bypassing the sequential 3rd shard and eliminating the 15-minute idle tail period on Kaggle.
+  - *Auto-Attach & Import Fix:* Added `import shutil` and initialization detection for Part 3 in `--skip-initial-push` mode. In plain language, when re-attaching the orchestrator to an ongoing fleet, the script previously assumed Part 3 had never been pushed and attempted to re-dispatch it. Detecting Part 3's live status prevents redundant dispatches and ensures the orchestrator connects directly to the active kernel.
+
 
 
 

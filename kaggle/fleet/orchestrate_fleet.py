@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -107,6 +108,12 @@ def main():
         time.sleep(25)
     else:
         log.info(f"Attaching to already active Kaggle fleet ({args.shards} shards mode)...")
+        if args.shards == 3:
+            s3_init = get_kernel_status(slug3)
+            if s3_init in ("RUNNING", "COMPLETE"):
+                part3_pushed = True
+                part3_started = True
+                log.info(f"Detected {slug3} already dispatched with status: {s3_init}")
 
     log.info("Starting Fleet Orchestrator Loop...")
     t_start = time.time()
