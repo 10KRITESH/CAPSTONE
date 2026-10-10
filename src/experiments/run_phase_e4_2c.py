@@ -144,7 +144,7 @@ def fast_evaluate(
     device: torch.device,
 ) -> dict[str, float]:
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         logits = model(X_test_gpu)
         preds = torch.argmax(logits, dim=1)
 
@@ -407,7 +407,7 @@ def run_simulation(
                 crit = client_criterions[cid]
                 N = Xc.shape[0]
 
-                with torch.no_grad():
+                with torch.inference_mode():
                     for p_loc, p_glob in zip(loc_model.parameters(), global_model.parameters()):
                         p_loc.copy_(p_glob)
                 opt.state.clear()
@@ -430,7 +430,7 @@ def run_simulation(
                     opt.step()
 
                 u = {}
-                with torch.no_grad():
+                with torch.inference_mode():
                     for (k, p_loc), p_glob in zip(loc_model.named_parameters(), global_model.parameters()):
                         u[k] = p_loc - p_glob
 

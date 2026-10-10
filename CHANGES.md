@@ -1132,10 +1132,17 @@
 - **Block-by-block explanation:**
   - *8-Worker Multi-Processing:* Updated invocation to `--workers 8 --force-workers`. In plain language, Python runs a single execution thread per process due to the Global Interpreter Lock (GIL). Running 1 process left 75% of the machine's 8 CPU cores completely idle. Launching 8 worker processes in parallel assigns exactly 1 simulation process per CPU core, with 4 processes assigned to `cuda:0` and 4 processes assigned to `cuda:1`. This achieves 100% duty cycle on both GPUs and all 8 vCPUs.
 
+#### `src/experiments/run_phase_e4_2c.py` (`torch.inference_mode` Autograd Zero-Overhead)
+- **Purpose:** Eliminates PyTorch autograd tracking overhead during evaluation, parameter synchronization, and update delta extraction.
+- **How it fits into overall flow:** Wraps tensor operations that do not require gradient calculations with PyTorch's lowest-overhead inference context.
+- **Block-by-block explanation:**
+  - *Inference Mode Acceleration:* Replaced `torch.no_grad()` with `torch.inference_mode()` across `fast_evaluate`, local-to-global parameter copying, and update delta extraction. In plain language, while `torch.no_grad()` prevents gradient accumulation, PyTorch still tracks tensor version counters and view relationships in case tensors are later used in backward graphs. `torch.inference_mode()` completely disables all view and version tracking, removing internal C++ bookkeeping overhead and executing raw tensor arithmetic at maximum speed.
+
 #### `kaggle/fleet/orchestrate_fleet.py` (First-Class 2-Shard Execution Mode)
 - **Purpose:** Eliminates odd-shard idle GPU slot latency during cloud runs.
 - **How it fits into overall flow:** Adds `--shards 2` CLI argument, coordinating parallel execution of Part 1 and Part 2 simultaneously with zero queuing delay.
 - **Block-by-block explanation:**
   - *2-Shard Termination & Merging:* Added logic allowing the orchestrator to monitor only Part 1 and Part 2, immediately breaking the polling loop and downloading outputs the moment both finish, completely bypassing the sequential 3rd shard and eliminating the 15-minute idle tail period on Kaggle.
+
 
 
