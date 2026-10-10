@@ -73,24 +73,24 @@ def aggregate_trust_class_aware(
     # 2. Calculate Head weights per client per class
     # Pre-calculate client head update norms per class if head salience is enabled (Flaw 5)
     client_head_saliences: list[dict[int, float]] = []
-    if use_head_salience and not disable_head_body_split:
-        for update in updates:
-            salience_dict: dict[int, float] = {}
-            head_w = update.get("head.weight")
-            head_b = update.get("head.bias")
-            if head_w is not None and head_w.ndim == 2:
-                row_sq = torch.sum(head_w.float() ** 2, dim=1)
-                if head_b is not None:
-                    row_sq = row_sq + (head_b.float() ** 2)
-                row_norms = torch.sqrt(row_sq + 1e-12)
-                total_head = torch.norm(row_norms) + 1e-8
-                normed = (row_norms / total_head).cpu().numpy()
-                for c_idx in range(num_classes):
-                    salience_dict[c_idx] = float(normed[c_idx])
-            else:
-                for c_idx in range(num_classes):
-                    salience_dict[c_idx] = 1.0 / max(1, num_classes)
-            client_head_saliences.append(salience_dict)
+    if use_head_salience and not disable_head_body_split and updates:
+        head_w_list = [u.get("head.weight") for u in updates]
+        head_b_list = [u.get("head.bias") for u in updates]
+        if head_w_list[0] is not None and head_w_list[0].ndim == 2:
+            dev = head_w_list[0].device
+            hw_stack = torch.stack(head_w_list).float()  # (N, num_classes, hidden)
+            row_sq = torch.sum(hw_stack ** 2, dim=2)      # (N, num_classes)
+            if head_b_list[0] is not None:
+                hb_stack = torch.stack(head_b_list).float()
+                row_sq = row_sq + (hb_stack ** 2)
+            row_norms = torch.sqrt(row_sq + 1e-12)
+            total_head = torch.norm(row_norms, dim=1, keepdim=True) + 1e-8
+            normed_matrix = (row_norms / total_head).cpu().numpy()
+            for idx in range(len(updates)):
+                client_head_saliences.append({c_idx: float(normed_matrix[idx, c_idx]) for c_idx in range(num_classes)})
+        else:
+            for _ in updates:
+                client_head_saliences.append({c_idx: 1.0 / max(1, num_classes) for c_idx in range(num_classes)})
 
     head_class_weights = {c_idx: [] for c_idx in range(num_classes)}
     if disable_head_body_split:
@@ -117,34 +117,45 @@ def aggregate_trust_class_aware(
                 fb[best_idx] = 1.0
                 head_class_weights[c_idx] = fb
 
-    # 3. Apply aggregated updates
+    # 3. Apply aggregated updates (Vectorized on target device)
     aggregated_global = {k: v.clone() for k, v in global_dict.items()}
+    if not updates:
+        elapsed_ms = (time.time() - t0) * 1000.0
+        return aggregated_global, elapsed_ms
+
+    body_w_tensor = torch.tensor(norm_body_w, dtype=torch.float32)
+    head_w_matrix = torch.tensor(
+        [[head_class_weights[c][idx] for idx in range(len(updates))] for c in range(num_classes)],
+        dtype=torch.float32
+    )
 
     for k in global_dict.keys():
         if not torch.is_floating_point(global_dict[k]):
             continue
 
+        dev_k = global_dict[k].device
+        w_body = body_w_tensor.to(dev_k)
+        w_head = head_w_matrix.to(dev_k)
+
         if k.startswith("body."):
-            # Body layer aggregation using scalar base trust
-            agg_delta = torch.zeros_like(global_dict[k])
-            for idx, update in enumerate(updates):
-                agg_delta += update[k].to(global_dict[k].device) * norm_body_w[idx]
+            # Body layer aggregation using broadcasted tensor reduction
+            stacked_u = torch.stack([u[k].to(dev_k) for u in updates])
+            shape_view = [-1] + [1] * (stacked_u.ndim - 1)
+            agg_delta = torch.sum(stacked_u * w_body.view(*shape_view), dim=0)
             aggregated_global[k] = global_dict[k] + agg_delta
 
         elif k.startswith("head."):
-            # Head layer aggregation
-            agg_delta = torch.zeros_like(global_dict[k])
-            
-            # head.weight: shape (num_classes, hidden2)
-            # head.bias: shape (num_classes,)
-            for c_idx in range(num_classes):
-                norm_c_w = head_class_weights[c_idx]
-                for idx, update in enumerate(updates):
-                    u_k = update[k].to(global_dict[k].device)
-                    if k == "head.weight":
-                        agg_delta[c_idx, :] += u_k[c_idx, :] * norm_c_w[idx]
-                    elif k == "head.bias":
-                        agg_delta[c_idx] += u_k[c_idx] * norm_c_w[idx]
+            # Head layer aggregation using batched class weighting
+            if k == "head.weight":
+                # stacked_head shape: (num_classes, N, hidden2)
+                stacked_head = torch.stack([u[k].to(dev_k) for u in updates]).transpose(0, 1)
+                agg_delta = torch.sum(stacked_head * w_head.unsqueeze(-1), dim=1)
+            elif k == "head.bias":
+                # stacked_bias shape: (num_classes, N)
+                stacked_bias = torch.stack([u[k].to(dev_k) for u in updates]).t()
+                agg_delta = torch.sum(stacked_bias * w_head, dim=1)
+            else:
+                agg_delta = torch.zeros_like(global_dict[k])
 
             aggregated_global[k] = global_dict[k] + agg_delta
 
