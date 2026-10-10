@@ -168,14 +168,23 @@ class UpdateValidator:
             ref_n = ref_flat / r_norm
             norms_clamped = torch.clamp(torch.norm(stacked_flat, dim=1, keepdim=True), min=1e-8)
             stacked_norm = stacked_flat / norms_clamped
-            cos_sims = torch.mv(stacked_norm, ref_n).clamp(-1.0, 1.0).cpu().tolist()
+            cos_sims_tensor = torch.mv(stacked_norm, ref_n).clamp(-1.0, 1.0)
+            cos_sims = cos_sims_tensor.cpu().tolist()
+            ref_sims_np = cos_sims_tensor.cpu().numpy()
         else:
+            stacked_norm = torch.zeros_like(stacked_flat)
             cos_sims = [1.0 for _ in client_ids]
+            ref_sims_np = np.ones(len(client_ids), dtype=float)
 
-        # 2. Run Cross-Client Sub-Cluster Collusion Detection
+        # 2. Run Cross-Client Sub-Cluster Collusion Detection (deduplicated)
         t_col_start = time.time()
         collusion_penalties = self.collusion_detector.analyze_updates(
-            flat_updates, client_ids, ref_flat, round_num
+            flat_updates,
+            client_ids,
+            ref_flat,
+            round_num,
+            precomputed_normed_updates=stacked_norm,
+            precomputed_ref_sims=ref_sims_np,
         )
         t_col_ms = (time.time() - t_col_start) * 1000.0
 

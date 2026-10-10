@@ -65,6 +65,8 @@ class SubClusterCollusionDetector:
         client_ids: list[int | str],
         reference_flat: torch.Tensor,
         round_num: int,
+        precomputed_normed_updates: torch.Tensor | None = None,
+        precomputed_ref_sims: np.ndarray | None = None,
     ) -> dict[int | str, float]:
         """
         Analyze submitted client updates for coordinated multi-client collusion.
@@ -76,26 +78,32 @@ class SubClusterCollusionDetector:
         if num_clients < self.min_group_size:
             return {c_id: 0.0 for c_id in client_ids}
 
-        # 1. Flatten all updates into 1D vectors (if not already flat)
-        if updates and isinstance(updates[0], torch.Tensor):
-            flat_updates = updates
+        # 1. Vectorized pairwise cosine similarity matrix S_ij and ref_sims
+        if precomputed_normed_updates is not None and precomputed_ref_sims is not None:
+            X_norm = precomputed_normed_updates
+            S_vec = torch.mm(X_norm, X_norm.t()).clamp(-1.0, 1.0)
+            S_vec.fill_diagonal_(1.0)
+            S = S_vec.cpu().numpy()
+            ref_sims = precomputed_ref_sims
         else:
-            flat_updates = [flatten_update(u) for u in updates]
+            if updates and isinstance(updates[0], torch.Tensor):
+                flat_updates = updates
+            else:
+                flat_updates = [flatten_update(u) for u in updates]
 
-        # 2. Vectorized pairwise cosine similarity matrix S_ij and ref_sims
-        X = torch.stack(flat_updates)
-        norms = torch.norm(X, dim=1, keepdim=True)
-        mask = (norms > 1e-8)
-        X_norm = torch.where(mask, X / torch.clamp(norms, min=1e-8), torch.zeros_like(X))
-        r_norm = torch.norm(reference_flat).item()
-        ref_n = (reference_flat / r_norm) if r_norm > 1e-8 else torch.zeros_like(reference_flat)
+            X = torch.stack(flat_updates)
+            norms = torch.norm(X, dim=1, keepdim=True)
+            mask = (norms > 1e-8)
+            X_norm = torch.where(mask, X / torch.clamp(norms, min=1e-8), torch.zeros_like(X))
+            r_norm = torch.norm(reference_flat).item()
+            ref_n = (reference_flat / r_norm) if r_norm > 1e-8 else torch.zeros_like(reference_flat)
 
-        S_vec = torch.mm(X_norm, X_norm.t()).clamp(-1.0, 1.0)
-        S_vec.fill_diagonal_(1.0)
-        S = S_vec.cpu().numpy()
+            S_vec = torch.mm(X_norm, X_norm.t()).clamp(-1.0, 1.0)
+            S_vec.fill_diagonal_(1.0)
+            S = S_vec.cpu().numpy()
 
-        ref_sims = torch.mv(X_norm, ref_n).clamp(-1.0, 1.0).cpu().numpy()
-        ref_sims[~mask.squeeze().cpu().numpy()] = 1.0
+            ref_sims = torch.mv(X_norm, ref_n).clamp(-1.0, 1.0).cpu().numpy()
+            ref_sims[~mask.squeeze().cpu().numpy()] = 1.0
 
         self.pairwise_matrix_cache = S
 
