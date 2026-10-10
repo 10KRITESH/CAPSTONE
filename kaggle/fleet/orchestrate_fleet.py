@@ -84,6 +84,7 @@ def main():
     parser.add_argument("--poll-interval", type=int, default=20, help="Seconds between status checks")
     parser.add_argument("--output-dir", type=str, default="results/runs/phase_e4_2c", help="Merged output directory")
     parser.add_argument("--skip-initial-push", action="store_true", help="Attach to already running Part 1 and Part 2")
+    parser.add_argument("--shards", type=int, default=3, choices=[2, 3], help="Fleet sharding mode (2 = balanced simultaneous 2-GPU, 3 = sequential wave)")
     args = parser.parse_args()
 
     slug1 = "spector10/capstone-fl-part1"
@@ -99,13 +100,13 @@ def main():
     part3_pushed = False
 
     if not args.skip_initial_push:
-        log.info("Dispatching initial fleet: Pushing Part 1 and Part 2 to Kaggle...")
+        log.info(f"Dispatching initial fleet ({args.shards} shards mode): Pushing Part 1 and Part 2 to Kaggle...")
         push_kernel("kaggle/fleet/part1")
         push_kernel("kaggle/fleet/part2")
         log.info("Initial push complete. Waiting 25s for Kaggle scheduler to register kernels...")
         time.sleep(25)
     else:
-        log.info("Attaching to already active Kaggle fleet (Part 1 and Part 2)...")
+        log.info(f"Attaching to already active Kaggle fleet ({args.shards} shards mode)...")
 
     log.info("Starting Fleet Orchestrator Loop...")
     t_start = time.time()
@@ -113,10 +114,13 @@ def main():
     while True:
         s1 = get_kernel_status(slug1)
         s2 = get_kernel_status(slug2)
-        s3 = get_kernel_status(slug3) if part3_pushed else "NOT_YET_DISPATCHED"
+        s3 = get_kernel_status(slug3) if (args.shards == 3 and part3_pushed) else "NOT_YET_DISPATCHED"
 
         elapsed = time.time() - t_start
-        log.info(f"[{elapsed:.0f}s elapsed] Shard Statuses -> Part 1: {s1} | Part 2: {s2} | Part 3: {s3}")
+        if args.shards == 2:
+            log.info(f"[{elapsed:.0f}s elapsed] Shard Statuses (2-Shard Mode) -> Part 1: {s1} | Part 2: {s2}")
+        else:
+            log.info(f"[{elapsed:.0f}s elapsed] Shard Statuses -> Part 1: {s1} | Part 2: {s2} | Part 3: {s3}")
 
         # Check for errors
         if s1 == "ERROR":
@@ -125,7 +129,7 @@ def main():
         if s2 == "ERROR":
             log.error(f"{slug2} reported ERROR! Halting fleet.")
             sys.exit(1)
-        if part3_pushed and s3 == "ERROR":
+        if args.shards == 3 and part3_pushed and s3 == "ERROR":
             log.error(f"{slug3} reported ERROR! Halting fleet.")
             sys.exit(1)
 
@@ -134,7 +138,7 @@ def main():
             part1_started = True
         if s2 in ("QUEUED", "RUNNING"):
             part2_started = True
-        if part3_pushed and s3 in ("QUEUED", "RUNNING"):
+        if args.shards == 3 and part3_pushed and s3 in ("QUEUED", "RUNNING"):
             part3_started = True
 
         # Mark completed shards only after they were observed active
@@ -142,11 +146,16 @@ def main():
             part1_done = True
         if part2_started and s2 == "COMPLETE":
             part2_done = True
-        if part3_started and s3 == "COMPLETE":
+        if args.shards == 3 and part3_started and s3 == "COMPLETE":
             part3_done = True
 
-        # Dispatch Part 3 when either Part 1 or Part 2 completes
-        if not part3_pushed:
+        # Check 2-shard termination condition
+        if args.shards == 2 and part1_done and part2_done:
+            log.info("BOTH 2-SHARD BALANCED WORKERS COMPLETED SUCCESSFULLY! Initiating pull & merge pipeline...")
+            break
+
+        # Dispatch Part 3 when either Part 1 or Part 2 completes (3-shard mode only)
+        if args.shards == 3 and not part3_pushed:
             if part1_done or part2_done:
                 freed = slug1 if part1_done else slug2
                 log.info(f"{freed} has completed! Freeing GPU slot. Dispatching {slug3}...")
@@ -156,19 +165,20 @@ def main():
                     time.sleep(25)
                     continue
 
-        # Check termination condition: all 3 shards are COMPLETE
-        if part1_done and part2_done and part3_done:
+        # Check 3-shard termination condition
+        if args.shards == 3 and part1_done and part2_done and part3_done:
             log.info("ALL 3 SHARDS HAVE COMPLETED SUCCESSFULLY! Initiating pull & merge pipeline...")
             break
 
         time.sleep(args.poll_interval)
 
-    # Pull outputs from all 3 shards
+    # Pull outputs from completed shards
     fleet_outputs = [
         (slug1, ROOT_DIR / "results" / "fleet_outputs" / "part1"),
         (slug2, ROOT_DIR / "results" / "fleet_outputs" / "part2"),
-        (slug3, ROOT_DIR / "results" / "fleet_outputs" / "part3"),
     ]
+    if args.shards == 3:
+        fleet_outputs.append((slug3, ROOT_DIR / "results" / "fleet_outputs" / "part3"))
 
     pulled_dirs = []
     for slug, out_p in fleet_outputs:

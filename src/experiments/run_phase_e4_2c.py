@@ -208,6 +208,11 @@ def run_simulation(
     custom_params = config.get("custom_params", {}) or {}
 
     torch.backends.cudnn.benchmark = True
+    if device.type == "cuda":
+        try:
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
     torch.manual_seed(train_seed)
     np.random.seed(train_seed)
 
@@ -223,7 +228,12 @@ def run_simulation(
 
     X_val = eval_data["X_val"]
     y_val = eval_data["y_val"]
-    val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=batch_size * 2, shuffle=False)
+    val_loader = DataLoader(
+        TensorDataset(X_val, y_val),
+        batch_size=batch_size * 2,
+        shuffle=False,
+        pin_memory=(device.type == "cuda"),
+    )
 
     X_test = eval_data["X_test"].to(device, non_blocking=True)
     y_test = eval_data["y_test"].to(device, non_blocking=True)
