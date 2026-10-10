@@ -80,20 +80,26 @@ def pull_shard_output(slug: str, out_dir: Path) -> Path:
 def main():
     parser = argparse.ArgumentParser(description="Autonomous 3-Kernel Fleet Orchestrator")
     parser.add_argument("--poll-interval", type=int, default=20, help="Seconds between status checks")
-    parser.add_argument("--output-dir", type=str, default="results/runs/phase_e4_2a", help="Merged output directory")
+    parser.add_argument("--output-dir", type=str, default="results/runs/phase_e4_2c", help="Merged output directory")
     args = parser.parse_args()
 
     slug1 = "spector10/capstone-fl-part1"
     slug2 = "spector10/capstone-fl-part2"
     slug3 = "spector10/capstone-fl-part3"
 
+    part1_started = False
+    part2_started = False
+    part3_started = False
+    part1_done = False
+    part2_done = False
+    part3_done = False
     part3_pushed = False
-    
-    # Check if part3 is already running
-    s3_initial = get_kernel_status(slug3)
-    if s3_initial in ("RUNNING", "QUEUED"):
-        part3_pushed = True
-        log.info(f"{slug3} is already {s3_initial}")
+
+    log.info("Dispatching initial fleet: Pushing Part 1 and Part 2 to Kaggle...")
+    push_kernel("kaggle/fleet/part1")
+    push_kernel("kaggle/fleet/part2")
+    log.info("Initial push complete. Waiting 15s for Kaggle scheduler to register kernels...")
+    time.sleep(15)
 
     log.info("Starting Fleet Orchestrator Loop...")
     t_start = time.time()
@@ -106,7 +112,7 @@ def main():
         elapsed = time.time() - t_start
         log.info(f"[{elapsed:.0f}s elapsed] Shard Statuses -> Part 1: {s1} | Part 2: {s2} | Part 3: {s3}")
 
-        # Check if Part 1 or Part 2 threw ERROR
+        # Check for errors
         if s1 == "ERROR":
             log.error(f"{slug1} reported ERROR! Halting fleet.")
             sys.exit(1)
@@ -117,20 +123,35 @@ def main():
             log.error(f"{slug3} reported ERROR! Halting fleet.")
             sys.exit(1)
 
+        # Track when shards are observed queued or running
+        if s1 in ("QUEUED", "RUNNING"):
+            part1_started = True
+        if s2 in ("QUEUED", "RUNNING"):
+            part2_started = True
+        if part3_pushed and s3 in ("QUEUED", "RUNNING"):
+            part3_started = True
+
+        # Mark completed shards only after they were observed active
+        if part1_started and s1 == "COMPLETE":
+            part1_done = True
+        if part2_started and s2 == "COMPLETE":
+            part2_done = True
+        if part3_started and s3 == "COMPLETE":
+            part3_done = True
+
         # Dispatch Part 3 when either Part 1 or Part 2 completes
         if not part3_pushed:
-            if s1 == "COMPLETE" or s2 == "COMPLETE":
-                freed = slug1 if s1 == "COMPLETE" else slug2
+            if part1_done or part2_done:
+                freed = slug1 if part1_done else slug2
                 log.info(f"{freed} has completed! Freeing GPU slot. Dispatching {slug3}...")
                 ok = push_kernel("kaggle/fleet/part3")
                 if ok:
                     part3_pushed = True
-                    # Short sleep to let Kaggle register the new kernel
-                    time.sleep(10)
+                    time.sleep(15)
                     continue
 
         # Check termination condition: all 3 are COMPLETE
-        if s1 == "COMPLETE" and s2 == "COMPLETE" and s3 == "COMPLETE":
+        if part1_done and part2_done and part3_done:
             log.info("ALL 3 SHARDS HAVE COMPLETED SUCCESSFULLY! Initiating pull & merge pipeline...")
             break
 

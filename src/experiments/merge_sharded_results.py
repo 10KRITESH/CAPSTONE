@@ -83,7 +83,7 @@ def merge_shards(input_paths: list[str], output_dir_str: str) -> Path:
                     all_runs.append(data)
 
         # Telemetry CSV
-        telem_files = list(in_p.rglob("client_telemetry.csv"))
+        telem_files = list(in_p.rglob("*telemetry*.csv"))
         if telem_files:
             tf = telem_files[0]
             log.info(f"Processing telemetry from {tf}...")
@@ -116,6 +116,9 @@ def merge_shards(input_paths: list[str], output_dir_str: str) -> Path:
         with open(out_telemetry, "w") as out_tf:
             out_tf.write(telemetry_header)
             out_tf.writelines(all_telemetry_lines)
+        with open(out_dir / "telemetry.csv", "w") as out_tf2:
+            out_tf2.write(telemetry_header)
+            out_tf2.writelines(all_telemetry_lines)
         log.info(f"Wrote {len(all_telemetry_lines)} telemetry records to {out_telemetry}")
 
     # Write unified summary

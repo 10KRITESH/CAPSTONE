@@ -52,7 +52,7 @@ def main():
         pull_shard(slug, target_dir)
         pulled_dirs.append(str(target_dir))
 
-    unified_out = ROOT_DIR / "results" / "runs" / "phase_e4_2a"
+    unified_out = ROOT_DIR / "results" / "runs" / "phase_e4_2c"
     print(f"\nMerging shards into {unified_out}...")
     merge_shards(pulled_dirs, str(unified_out))
     print("==========================================================")

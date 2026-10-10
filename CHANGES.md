@@ -949,5 +949,26 @@
 - **Block-by-block explanation:**
   - *SUPERSEDED Banners on Parts 7 and 8:* Inserted prominent warning banners detailing the validator dropout bug (active `Dropout(0.3)` due to missing `model.eval()`), specifying that probe metrics in E4.1/E4.2a were distorted, and listing the surviving tables that did not rely on the probe (FedAvg, Median, Krum, Trimmed Mean, Oracle exclusion).
 
+### `src/experiments/run_phase_e4_2c.py`
+- **Purpose:** Universal benchmark simulation engine for Phase E4.2c, executing reference defenses, mechanism diagnostics, and adversarial stress tests.
+- **How it fits into overall flow:** Runs locally or across cloud shards, executing all 691 parameter combinations with zero data leakage (partitions {11..13} only) and asserting candidate immutability.
+- **Block-by-block explanation:**
+  - *`assert_candidate_hashes()`:* Cryptographically verifies SHA-256 hashes of all 10 candidate configs in `configs/candidates/` before executing any simulations, guaranteeing frozen parameter integrity.
+  - *`fast_evaluate()`:* Performs test evaluation on server validation/test splits with model in `eval()` mode, computing multi-class F1, balanced accuracy, and attack success rate (ASR).
+  - *`run_simulation()`:* Core simulation loop supporting reference defenses (`legacy_d0`, `d2_z3`, `fixed_e4`), ablation variant `c5b_no_norm_z` (norm_z completely removed), and 6 stress attack scenarios (`gamma1`, `norm_clip`, `cosine_mimic`, `head_boost`, `share_5_15`, `three_attackers`).
+  - *`main()` with `--shard`:* Filters configurations into 3 balanced execution shards (`part1`: 151 runs, `part2`: 270 runs, `part3`: 270 runs) and assigns round-robin GPU device strings (`cuda:0`, `cuda:1`) across available Tesla T4 accelerators.
+
+### `kaggle/fleet/orchestrate_fleet.py`
+- **Purpose:** Autonomous cloud orchestrator managing the 3-shard Kaggle fleet subject to Kaggle's 2-concurrent GPU session limit.
+- **How it fits into overall flow:** Dispatches Shards 1 and 2, polls their statuses via Kaggle CLI, launches Shard 3 when a GPU slot frees up, pulls all output archives upon completion, and merges results.
+- **Block-by-block explanation:**
+  - *Startup Dispatch:* Pushes Shards 1 and 2 to Kaggle, sleeping 15s to allow scheduler registration.
+  - *State Transition Tracking:* Tracks `started` flags to prevent stale `COMPLETE` statuses from prior runs from causing early termination.
+  - *Dynamic Queue Slot Management:* Launches Shard 3 as soon as Shard 1 or 2 finishes, maximizing dual GPU utilization.
+  - *Pull and Merge Pipeline:* Automatically downloads all three shard output archives and invokes `merge_shards()`.
+
+### `kaggle/fleet/pull_and_merge_fleet.py` & `src/experiments/merge_sharded_results.py`
+- **Purpose:** Standalone CLI and backend engine to download shard archives, extract them, merge `runs.jsonl` and telemetry CSVs into `results/runs/phase_e4_2c/`, and regenerate `RESULTS.md`.
+
 
 
