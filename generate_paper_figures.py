@@ -4,7 +4,7 @@ Run: python generate_paper_figures.py
 Outputs: figures/fig1_main_comparison.pdf  (+ .png)
          figures/fig2_multi_attack_heatmap.pdf
          figures/fig3_convergence.pdf
-         figures/fig4_byzantine_tolerance.pdf
+         figures/fig4_Adversarial_tolerance.pdf
          figures/fig5_per_class_radar.pdf
          figures/fig6_ablation.pdf
 """
@@ -86,8 +86,8 @@ def fig1_main_comparison():
     ax.set_xticklabels(METHOD_LABELS, fontsize=10)
     ax.set_ylabel('Score (%)')
     ax.set_ylim(0, 100)
-    ax.set_title('Figure 1 — Defense Comparison Under Targeted Label-Flip Attack\n'
-                 '(20% Byzantine clients, 8-class CICIoT2023, N=20 clients)', pad=12)
+    ax.set_title('Defense Comparison Under Targeted Label-Flip Attack\n'
+                 '(20% Adversarial clients, 8-class CICIoT2023, N=20 clients)', pad=12)
     ax.legend(loc='upper left', framealpha=0.85)
 
     # annotate the RECON F1 gap
@@ -139,8 +139,8 @@ def fig2_multi_attack_heatmap():
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.04)
     cbar.set_label('RECON F1 (%)', fontsize=10)
 
-    ax.set_title('Figure 2 — Multi-Attack Robustness Benchmark (RECON F1 %)\n'
-                 '4 Attack Types × 5 Defenses, 20% Byzantine clients', pad=12)
+    ax.set_title('Multi-Attack Robustness Benchmark (RECON F1 %)\n'
+                 '4 Attack Types × 5 Defenses, 20% Adversarial clients', pad=12)
 
     # column separator before "Ours"
     ax.axvline(3.5, color='#00BCD4', linewidth=2.5, linestyle='--', alpha=0.7)
@@ -166,17 +166,17 @@ def fig3_convergence():
     ax.plot(rounds, clean,  color=PALETTE['fedavg_clean'],  lw=2.2, marker='o', ms=6,
             label='FedAvg — Clean (0% attack)', linestyle='--')
     ax.plot(rounds, poison, color=PALETTE['fedavg_poison'], lw=2.2, marker='s', ms=6,
-            label='FedAvg — Poisoned (20% Byzantine)', linestyle=':')
+            label='FedAvg — Poisoned (20% Adversarial)', linestyle=':')
     ax.plot(rounds, ours,   color=PALETTE['ours'],          lw=2.5, marker='^', ms=7,
-            label='AegisFL (20% Byzantine)', linestyle='-')
+            label='AegisFL (20% Adversarial)', linestyle='-')
 
     # shade the convergence gap
     ax.fill_between(rounds, poison, ours, alpha=0.08, color=PALETTE['ours'])
 
     ax.set_xlabel('Communication Round')
     ax.set_ylabel('Global Model Accuracy (%)')
-    ax.set_title('Figure 3 — Convergence Under Targeted Label-Flip Attack\n'
-                 '(20% Byzantine clients, N=20, CICIoT2023)', pad=12)
+    ax.set_title('Convergence Under Targeted Label-Flip Attack\n'
+                 '(20% Adversarial clients, N=20, CICIoT2023)', pad=12)
     ax.legend(loc='lower right', framealpha=0.9)
     ax.set_xlim(1, 20)
     ax.set_ylim(55, 95)
@@ -195,9 +195,9 @@ def fig3_convergence():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FIG 4 — Byzantine Fraction Tolerance
+# FIG 4 — Adversarial Fraction Tolerance
 # ══════════════════════════════════════════════════════════════════════════════
-def fig4_byzantine_tolerance():
+def fig4_Adversarial_tolerance():
     fracs   = [10, 20, 30, 40, 50]
     poison  = [31.2, 18.7, 12.4,  9.1,  6.3]
     trimmed = [73.2, 65.9, 55.1, 39.8, 24.6]
@@ -221,10 +221,10 @@ def fig4_byzantine_tolerance():
     ax.axvline(20, color='#888', linestyle='--', lw=1.2, alpha=0.7, label='Default setting (20%)')
     ax.fill_between(fracs, krum, ours, alpha=0.08, color=PALETTE['ours'])
 
-    ax.set_xlabel('Byzantine Client Fraction (%)')
+    ax.set_xlabel('Adversarial Client Fraction (%)')
     ax.set_ylabel('RECON F1 (%)')
-    ax.set_title('Figure 4 — Byzantine Fraction Tolerance\n'
-                 '(RECON F1 vs. % of Byzantine clients, Targeted Label-Flip)', pad=12)
+    ax.set_title('Adversarial Fraction Tolerance\n'
+                 '(RECON F1 vs. % of Adversarial clients, Targeted Label-Flip)', pad=12)
     ax.legend(loc='upper right', framealpha=0.9, ncol=1)
     ax.set_xlim(8, 52)
     ax.set_ylim(0, 100)
@@ -266,7 +266,7 @@ def fig5_per_class_radar():
     ax.set_ylim(0, 100)
     ax.set_yticks([20, 40, 60, 80, 100])
     ax.set_yticklabels(['20%', '40%', '60%', '80%', '100%'], size=8, color='#666')
-    ax.set_title('Figure 5 — Per-Class F1 Score\nFedAvg (Poisoned) vs. AegisFL (Ours)',
+    ax.set_title('Per-Class F1 Score\nFedAvg (Poisoned) vs. AegisFL (Ours)',
                  pad=20, size=12)
     ax.legend(loc='upper right', bbox_to_anchor=(1.32, 1.12), framealpha=0.9)
 
@@ -324,8 +324,8 @@ def fig6_ablation():
 
     ax.set_xlabel('RECON F1 (%)')
     ax.set_xlim(0, 100)
-    ax.set_title('Figure 6 — Component Ablation Study\n'
-                 '(RECON F1 under Targeted Label-Flip, 20% Byzantine)', pad=12)
+    ax.set_title('Component Ablation Study\n'
+                 '(RECON F1 under Targeted Label-Flip, 20% Adversarial)', pad=12)
     ax.axvline(full_val, color=PALETTE['ours'], lw=1.5, linestyle='--', alpha=0.5)
 
     fig.tight_layout()
@@ -341,7 +341,7 @@ if __name__ == '__main__':
     fig1_main_comparison()
     fig2_multi_attack_heatmap()
     fig3_convergence()
-    fig4_byzantine_tolerance()
+    fig4_Adversarial_tolerance()
     fig5_per_class_radar()
     fig6_ablation()
     print('\nAll figures saved to ./figures/')
