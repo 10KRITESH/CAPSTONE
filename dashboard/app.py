@@ -417,7 +417,7 @@ def render_state_badge(state: str) -> str:
 
 # Format dataframe for display
 styled_df = df_clients.copy()
-st.dataframe(styled_df, use_container_width=True, height=280)
+st.dataframe(styled_df, width="stretch", height=280)
 
 # Explanatory card
 with st.expander("ℹ️ How Detection & 3-Tier State Isolation Works", expanded=(current_round == 3 or current_round == 4)):
@@ -525,7 +525,7 @@ with tab_viz2:
             "RECON F1 (%)": [f"{v:.1f}%" for v in recon_f1s],
             "Classification": [BENCHMARK_SUMMARY[m]["Status"] for m in methods],
         }),
-        use_container_width=True,
+        width="stretch",
     )
 
 # ── TAB 3: Per-Class Attack Breakdown (8 Classes) ──
@@ -599,6 +599,6 @@ if not blocks_data:
         {"Block #": 106, "Round": 5, "Client": "Client_04", "State Transition": "PROBATION → QUARANTINED", "Evidence Score": "0.89", "Record Hash (SHA-256)": "4b98c321ef10892acbde8971...", "Transaction Hash": "0x34fbe199ac8701cd", "Integrity": "VERIFIED [OK]"},
     ]
 
-st.dataframe(pd.DataFrame(blocks_data), use_container_width=True, height=220)
+st.dataframe(pd.DataFrame(blocks_data), width="stretch", height=220)
 
 st.caption("AegisFL Demonstration Suite • B.Tech Capstone Project • Edge-IIoTset Benchmark")
