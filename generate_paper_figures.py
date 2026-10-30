@@ -232,8 +232,8 @@ def fig4_Adversarial_tolerance():
     ax.set_xticklabels([f'{f}%' for f in fracs])
 
     fig.tight_layout()
-    fig.savefig('figures/fig4_byzantine_tolerance.png', bbox_inches='tight')
-    fig.savefig('figures/fig4_byzantine_tolerance.pdf', bbox_inches='tight')
+    fig.savefig('figures/fig4_Adversarial_tolerance.png', bbox_inches='tight')
+    fig.savefig('figures/fig4_Adversarial_tolerance.pdf', bbox_inches='tight')
     plt.close()
     print('[OK] Fig 4 saved')
 

@@ -50,9 +50,9 @@
     "new_state": "QUARANTINED",
     "evidence_score": 0.78,
     "record_hash": "fbaf13ac4fba3a24679d67dce4299683e2c7fdc5403659c9189274f3494d589b",
-    "tx_hash": "0xfbaf13ac4fba3a246ac606d3",
-    "block_num": 141,
-    "timestamp": 1791362771.6160676
+    "tx_hash": "0xfbaf13ac4fba3a246ae30702",
+    "block_num": 167,
+    "timestamp": 1793263362.10785
   },
   "220de7c96b77c3e2cbc3deb6b43b212058637edcaca320fbf529db9d1f162e36": {
     "round_id": 3,
